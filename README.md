@@ -193,6 +193,11 @@ See Development Guide for local setup and guidelines.
 
 Made with ❤️ by DumbWare.io
 
+## 🌐 Check Us Out
+- **Website:** [dumbware.io](https://www.dumbware.io/)
+- **Buy Us a Coffee:** [buymeacoffee.com/dumbware](https://buymeacoffee.com/dumbware) ☕
+- **Join the Chaos:** [Discord](https://discord.gg/zJutzxWyq2) 💬
+
 ## Future Features
 
 * Markdown support
