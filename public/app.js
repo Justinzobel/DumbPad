@@ -23,14 +23,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let baseUrl = '';
     let ws = null;
     let isReceivingUpdate = false;
-    let revision = 0; // Track document version
+    let revision = 0;
     
     // Collaborative editing state
     const userId = Math.random().toString(36).substring(2, 15);
+    window.userId = userId; // Make userId globally accessible
     const userColor = getRandomColor();
     const remoteCursors = new Map();
     let lastCursorUpdate = 0;
     const CURSOR_UPDATE_INTERVAL = 100;
+    let localCursorPosition = 0;
 
     // Operation Types
     const OperationType = {
@@ -45,7 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
             position,
             text,
             userId,
-            revision: revision++
+            revision: revision++,
+            cursorPosition: editor.selectionStart
         };
     }
 
@@ -58,14 +61,27 @@ document.addEventListener('DOMContentLoaded', () => {
         const newOp = { ...operation };
 
         if (against.type === OperationType.INSERT) {
+            // Adjust position if operation is after the insertion point
             if (operation.position > against.position) {
                 newOp.position += against.text.length;
             }
+            // Adjust cursor position if it's after the insertion point
+            if (operation.cursorPosition > against.position) {
+                newOp.cursorPosition += against.text.length;
+            }
         } else if (against.type === OperationType.DELETE) {
+            // Adjust position if operation is after the deletion point
             if (operation.position > against.position) {
                 newOp.position -= Math.min(
                     against.text.length,
                     operation.position - against.position
+                );
+            }
+            // Adjust cursor position if it's after the deletion point
+            if (operation.cursorPosition > against.position) {
+                newOp.cursorPosition -= Math.min(
+                    against.text.length,
+                    operation.cursorPosition - against.position
                 );
             }
         }
@@ -128,12 +144,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Update cursor position
-    function updateCursorPosition(userId, position) {
+    function updateCursorPosition(userId, position, color) {
         if (userId === window.userId) return; // Don't show own cursor
         
         let cursor = remoteCursors.get(userId);
         if (!cursor) {
-            cursor = createRemoteCursor(userId, getRandomColor());
+            cursor = createRemoteCursor(userId, color);
             remoteCursors.set(userId, cursor);
         }
 
@@ -347,6 +363,7 @@ document.addEventListener('DOMContentLoaded', () => {
                            (currentValue.length - previousValue.length);
             const insertedText = currentValue.slice(position, e.target.selectionStart);
             operation = createOperation(OperationType.INSERT, position, insertedText);
+            localCursorPosition = e.target.selectionStart;
         } else {
             // Delete operation
             const position = e.target.selectionStart;
@@ -355,6 +372,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 position + (previousValue.length - currentValue.length)
             );
             operation = createOperation(OperationType.DELETE, position, deletedText);
+            localCursorPosition = position;
         }
 
         // Send operation through WebSocket
@@ -381,12 +399,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (now - lastCursorUpdate < CURSOR_UPDATE_INTERVAL) return;
         
         lastCursorUpdate = now;
+        localCursorPosition = editor.selectionStart;
+        
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
                 type: 'cursor',
                 userId: userId,
                 color: userColor,
-                position: editor.selectionStart,
+                position: localCursorPosition,
                 notepadId: currentNotepadId
             }));
         }
@@ -605,65 +625,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const wsUrl = `${protocol}//${window.location.host}`;
         ws = new WebSocket(wsUrl);
 
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'cursor' && data.notepadId === currentNotepadId) {
-                    updateCursorPosition(data.userId, data.position);
-                }
-                else if (data.type === 'operation' && data.notepadId === currentNotepadId) {
-                    if (data.userId !== userId) {
-                        isReceivingUpdate = true;
-                        const currentPos = editor.selectionStart;
-                        
-                        // Transform and apply the operation
-                        const transformedOp = transformOperation(data.operation, {
-                            type: editor.lastOperation?.type,
-                            position: editor.lastOperation?.position,
-                            text: editor.lastOperation?.text,
-                            revision: editor.lastOperation?.revision
-                        });
-
-                        editor.value = applyOperation(transformedOp, editor.value);
-                        editor.lastOperation = transformedOp;
-
-                        // Adjust cursor position
-                        if (transformedOp.type === OperationType.INSERT && 
-                            currentPos > transformedOp.position) {
-                            editor.setSelectionRange(
-                                currentPos + transformedOp.text.length,
-                                currentPos + transformedOp.text.length
-                            );
-                        } else if (transformedOp.type === OperationType.DELETE && 
-                                 currentPos > transformedOp.position) {
-                            editor.setSelectionRange(
-                                Math.max(transformedOp.position, 
-                                        currentPos - transformedOp.text.length),
-                                Math.max(transformedOp.position, 
-                                        currentPos - transformedOp.text.length)
-                            );
-                        }
-
-                        isReceivingUpdate = false;
-                        editor.previousValue = editor.value;
-                        debouncedSave(editor.value);
-                    }
-                }
-                else if (data.type === 'notepad_change') {
-                    loadNotepads();
-                }
-                else if (data.type === 'user_disconnected') {
-                    const cursor = remoteCursors.get(data.userId);
-                    if (cursor) {
-                        cursor.remove();
-                        remoteCursors.delete(data.userId);
-                    }
-                }
-            } catch (error) {
-                console.error('WebSocket message error:', error);
-            }
-        };
+        ws.onmessage = handleWebSocketMessage;
 
         ws.onclose = () => {
             remoteCursors.forEach(cursor => cursor.remove());
@@ -672,7 +634,16 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         ws.onopen = () => {
-            updateLocalCursor();
+            // Send initial cursor position and color
+            if (editor) {
+                ws.send(JSON.stringify({
+                    type: 'cursor',
+                    userId: userId,
+                    color: userColor,
+                    position: editor.selectionStart,
+                    notepadId: currentNotepadId
+                }));
+            }
         };
     };
 
