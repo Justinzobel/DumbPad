@@ -18,8 +18,9 @@ const server = app.listen(PORT, () => {
 // Set up WebSocket server
 const wss = new WebSocket.Server({ server });
 
-// Store all active connections with their user IDs
+// Store all active connections with their user IDs and their last known operations
 const clients = new Map();
+const documentHistory = new Map(); // Store operation history for each notepad
 
 // WebSocket connection handling
 wss.on('connection', (ws) => {
@@ -36,11 +37,29 @@ wss.on('connection', (ws) => {
                 clients.set(userId, ws);
             }
 
-            // Broadcast the update to all other clients
-            clients.forEach((client, clientId) => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
-                    // For cursor updates, only send to clients viewing the same notepad
-                    if (data.type === 'cursor' && data.notepadId) {
+            // Handle different message types
+            if (data.type === 'operation' && data.notepadId) {
+                // Get or initialize operation history for this notepad
+                let history = documentHistory.get(data.notepadId) || [];
+                history.push(data.operation);
+                documentHistory.set(data.notepadId, history);
+
+                // Broadcast the operation to all other clients
+                clients.forEach((client, clientId) => {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify({
+                            type: 'operation',
+                            operation: data.operation,
+                            userId: data.userId,
+                            notepadId: data.notepadId
+                        }));
+                    }
+                });
+            }
+            else if (data.type === 'cursor' && data.notepadId) {
+                // Broadcast cursor updates
+                clients.forEach((client, clientId) => {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
                         client.send(JSON.stringify({
                             type: 'cursor',
                             userId: data.userId,
@@ -48,11 +67,17 @@ wss.on('connection', (ws) => {
                             position: data.position,
                             notepadId: data.notepadId
                         }));
-                    } else {
-                        client.send(JSON.stringify(data));
                     }
-                }
-            });
+                });
+            }
+            else if (data.type === 'notepad_change') {
+                // Broadcast notepad changes
+                clients.forEach((client, clientId) => {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify({ type: 'notepad_change' }));
+                    }
+                });
+            }
         } catch (error) {
             console.error('WebSocket message error:', error);
         }
