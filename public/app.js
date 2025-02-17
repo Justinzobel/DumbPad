@@ -322,6 +322,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2000);
     };
 
+    // Add event listeners for download and print after function definitions
+    downloadNotepadBtn.addEventListener('click', downloadNotepad);
+    printNotepadBtn.addEventListener('click', printNotepad);
+
     // Initialize the app
     const initializeApp = () => {
         // Fetch site configuration
