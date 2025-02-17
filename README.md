@@ -6,6 +6,19 @@ A stupid simple, no auth (unless you want it!), modern notepad application with 
 
 ## Table of Contents
 
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Option 1: Docker](#option-1-docker-for-dummies)
+  - [Option 2: Docker Compose](#option-2-docker-compose-for-dummies-who-like-customizing)
+  - [Option 3: Running Locally](#option-3-running-locally-for-developers)
+- [Configuration](#configuration)
+- [Security](#security)
+- [Technical Details](#technical-details)
+- [Links](#links)
+- [Contributing](#contributing)
+- [Future Features](#future-features)
+
 ## Features
 
 - Simple, clean interface
