@@ -57,6 +57,8 @@ Create a `docker-compose.yml` file:
 services:
   dumbpad:
     image: dumbwareio/dumbpad:latest
+    container_name: dumbpad
+    restart: unless-stopped
     ports:
       - 3000:3000
     volumes:
