@@ -9,15 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteNotepadBtn = document.getElementById('delete-notepad');
     const renameModal = document.getElementById('rename-modal');
     const deleteModal = document.getElementById('delete-modal');
-    const pinModal = document.getElementById('pin-modal');
-    const pinContainer = document.getElementById('pin-container');
-    const pinError = document.getElementById('pin-error');
-    const pinSubmit = document.getElementById('pin-submit');
     const renameInput = document.getElementById('rename-input');
     const renameCancel = document.getElementById('rename-cancel');
     const renameConfirm = document.getElementById('rename-confirm');
     const deleteCancel = document.getElementById('delete-cancel');
     const deleteConfirm = document.getElementById('delete-confirm');
+    const downloadNotepadBtn = document.getElementById('download-notepad');
     const printNotepadBtn = document.getElementById('print-notepad');
     
     let saveTimeout;
@@ -188,6 +185,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     observer.observe(pinModal, { attributes: true, attributeFilter: ['class'] });
+
+    let baseUrl = '';
 
     // Theme handling
     const initializeTheme = () => {
@@ -554,28 +553,142 @@ document.addEventListener('DOMContentLoaded', () => {
             deleteModal.classList.remove('visible');
         });
 
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                e.preventDefault();
-                saveNotes(editor.value);
-            }
-        });
+    // Print current notepad
+    const printNotepad = () => {
+        const notepadName = notepadSelector.options[notepadSelector.selectedIndex].text;
+        const content = editor.value;
+        
+        // Create a new window for printing
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>${notepadName}</title>
+                <style>
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        line-height: 1.6;
+                        padding: 2rem;
+                        white-space: pre-wrap;
+                    }
+                    @media print {
+                        body {
+                            padding: 0;
+                        }
+                    }
+                </style>
+            </head>
+            <body>
+                ${content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>')}
+            </body>
+            </html>
+        `);
+        
+        printWindow.document.close();
+        printWindow.focus();
+        
+        // Wait for content to load before printing
+        setTimeout(() => {
+            printWindow.print();
+            // Close the window after printing (some browsers may do this automatically)
+            printWindow.close();
+        }, 250);
 
-        // Initialize notepads
-        loadNotepads().then(() => {
-            loadNotes(currentNotepadId);
-        });
+        // Show print status
+        saveStatus.textContent = 'Printing...';
+        saveStatus.classList.add('visible');
+        setTimeout(() => {
+            saveStatus.classList.remove('visible');
+        }, 2000);
     };
 
-    // Add PIN to all API requests
+    // Initialize the app
+    const initializeApp = () => {
+        // Fetch site configuration
+        fetch(`/api/config`)
+            .then(response => response.json())
+            .then(config => {
+                document.getElementById('page-title').textContent = `${config.siteTitle} - Simple Notes`;
+                document.getElementById('header-title').textContent = config.siteTitle;
+                baseUrl = config.baseUrl;
+
+                // Event Listeners
+                editor.addEventListener('input', (e) => {
+                    debouncedSave(e.target.value);
+                    checkPeriodicSave(e.target.value);
+                });
+
+                notepadSelector.addEventListener('change', (e) => {
+                    currentNotepadId = e.target.value;
+                    loadNotes(currentNotepadId);
+                });
+
+                newNotepadBtn.addEventListener('click', createNotepad);
+                if (downloadNotepadBtn) downloadNotepadBtn.addEventListener('click', downloadNotepad);
+                if (printNotepadBtn) printNotepadBtn.addEventListener('click', printNotepad);
+
+                renameNotepadBtn.addEventListener('click', () => {
+                    const currentNotepad = notepadSelector.options[notepadSelector.selectedIndex];
+                    renameInput.value = currentNotepad.text;
+                    renameModal.classList.add('visible');
+                });
+
+                deleteNotepadBtn.addEventListener('click', () => {
+                    if (currentNotepadId === 'default') {
+                        alert('Cannot delete the default notepad');
+                        return;
+                    }
+                    deleteModal.classList.add('visible');
+                });
+
+                renameCancel.addEventListener('click', () => {
+                    renameModal.classList.remove('visible');
+                });
+
+                renameConfirm.addEventListener('click', async () => {
+                    const newName = renameInput.value.trim();
+                    if (newName) {
+                        await renameNotepad(newName);
+                        renameModal.classList.remove('visible');
+                    }
+                });
+
+                deleteCancel.addEventListener('click', () => {
+                    deleteModal.classList.remove('visible');
+                });
+
+                deleteConfirm.addEventListener('click', async () => {
+                    await deleteNotepad();
+                    deleteModal.classList.remove('visible');
+                });
+
+                document.addEventListener('keydown', (e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                        e.preventDefault();
+                        saveNotes(editor.value);
+                    }
+                });
+
+                // Initialize notepads
+                loadNotepads().then(() => {
+                    loadNotes(currentNotepadId);
+                });
+            })
+            .catch(err => console.error('Error loading site configuration:', err));
+    };
+
+    // Add credentials to all API requests
     const fetchWithPin = async (url, options = {}) => {
+
         // Add credentials to include cookies
         options.credentials = 'same-origin';
-        // Ensure URL uses baseUrl
+
         const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
         return fetch(fullUrl, options);
     };
 
-    // Start the app by checking if PIN is required
+
+    // Start the app immediately since PIN verification is handled by the server
     initializeApp();
 }); 

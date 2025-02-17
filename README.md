@@ -5,6 +5,18 @@ A stupid simple, no auth (unless you want it!), modern notepad application with 
 ![image](https://github.com/user-attachments/assets/c6a00aac-f841-48a8-b8d3-c3d5378fc7d9)
 
 ## Table of Contents
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Option 1: Docker](#option-1-docker-for-dummies)
+  - [Option 2: Docker Compose](#option-2-docker-compose-for-dummies-who-like-customizing)
+  - [Option 3: Running Locally](#option-3-running-locally-for-developers)
+- [Configuration](#configuration)
+- [Security](#security)
+- [Technical Details](#technical-details)
+- [Links](#links)
+- [Contributing](#contributing)
+- [Future Features](#future-features)
 
 ## Features
 
@@ -153,6 +165,11 @@ docker run -p 3000:3000 -v "${PWD}\data:/app/data" dumbwareio/dumbpad:latest
 * dotenv: Environment configuration
 * cookie-parser: Cookie handling
 * express-rate-limit: Rate limiting
+
+
+The `data` directory contains:
+- `notepads.json`: List of all notepads
+- Individual `.txt` files for each notepad's content
 
 ⚠️ Important: Never delete the `data` directory when updating! This is where all your notes are stored.
 

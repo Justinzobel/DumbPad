@@ -15,7 +15,18 @@ const COOKIE_NAME = 'dumbpad_auth';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const PAGE_HISTORY_COOKIE = 'dumbpad_page_history';
-const PAGE_HISTORY_COOKIE_AGE = 365 * 24 * 60 * 60 * 1000. // 1 Year
+const PAGE_HISTORY_COOKIE_AGE = 365 * 24 * 60 * 60 * 1000; // 1 Year
+
+// Trust proxy - required for secure cookies behind a reverse proxy
+app.set('trust proxy', 1);
+
+// CORS configuration
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production' ? [BASE_URL, 'https://pad.000169.xyz'] : true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+};
 
 // Brute force protection
 const loginAttempts = new Map();
@@ -79,10 +90,8 @@ function secureCompare(a, b) {
     }
 }
 
-app.use(cors({
-    credentials: true,
-    origin: true
-}));
+// Middleware setup
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static('public', {
@@ -204,7 +213,7 @@ const requirePin = (req, res, next) => {
 
 // Apply pin protection to all /api routes except pin verification
 app.use('/api', (req, res, next) => {
-    if (req.path === '/verify-pin' || req.path === '/pin-required') {
+    if (req.path === '/verify-pin' || req.path === '/pin-required' || req.path === '/config') {
         return next();
     }
     requirePin(req, res, next);
@@ -393,6 +402,13 @@ app.delete('/api/notepads/:id', async (req, res) => {
     }
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`Base URL: ${BASE_URL}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 }); 
