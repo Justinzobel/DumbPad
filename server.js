@@ -5,9 +5,48 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
+const WebSocket = require('ws');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`Base URL: ${BASE_URL}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Set up WebSocket server
+const wss = new WebSocket.Server({ server });
+
+// Store all active connections
+const clients = new Set();
+
+// WebSocket connection handling
+wss.on('connection', (ws) => {
+    // Add new client to the set
+    clients.add(ws);
+
+    // Handle incoming messages
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            // Broadcast the update to all other clients
+            clients.forEach((client) => {
+                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify(data));
+                }
+            });
+        } catch (error) {
+            console.error('WebSocket message error:', error);
+        }
+    });
+
+    // Handle client disconnection
+    ws.on('close', () => {
+        clients.delete(ws);
+    });
+});
+
 const DATA_DIR = path.join(__dirname, 'data');
 const NOTEPADS_FILE = path.join(DATA_DIR, 'notepads.json');
 const PIN = process.env.DUMBPAD_PIN;
@@ -405,10 +444,4 @@ app.delete('/api/notepads/:id', async (req, res) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Base URL: ${BASE_URL}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 }); 

@@ -18,9 +18,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let saveTimeout;
     let lastSaveTime = Date.now();
-    const SAVE_INTERVAL = 10000; // Save every 10 seconds while typing
+    const SAVE_INTERVAL = 2000; // Reduced from 10000 to 2000 (2 seconds)
     let currentNotepadId = 'default';
     let baseUrl = '';
+    let ws = null;
+    let isReceivingUpdate = false;
 
     // Theme handling
     const initializeTheme = () => {
@@ -69,6 +71,13 @@ document.addEventListener('DOMContentLoaded', () => {
             notepadSelector.value = newNotepad.id;
             currentNotepadId = newNotepad.id;
             editor.value = '';
+            
+            // Broadcast notepad change
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'notepad_change'
+                }));
+            }
         } catch (err) {
             console.error('Error creating notepad:', err);
         }
@@ -113,6 +122,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ content }),
             });
             
+            // Broadcast the update to other clients
+            if (ws && ws.readyState === WebSocket.OPEN && !isReceivingUpdate) {
+                ws.send(JSON.stringify({
+                    type: 'update',
+                    notepadId: currentNotepadId,
+                    content: content
+                }));
+            }
+            
             // Show save status
             saveStatus.textContent = 'Saved';
             saveStatus.classList.add('visible');
@@ -143,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
             saveNotes(content);
-        }, 1000);
+        }, 300); // Reduced from 1000 to 300 milliseconds
     };
 
     // Event Listeners
@@ -201,6 +219,13 @@ document.addEventListener('DOMContentLoaded', () => {
             currentNotepadId = 'default';
             notepadSelector.value = currentNotepadId;
             await loadNotes(currentNotepadId);
+            
+            // Broadcast notepad change
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'notepad_change'
+                }));
+            }
             
             // Show deletion status
             saveStatus.textContent = 'Notepad deleted';
@@ -351,6 +376,36 @@ document.addEventListener('DOMContentLoaded', () => {
         const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
         return fetch(fullUrl, options);
     };
+
+    // WebSocket setup
+    const setupWebSocket = () => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}`;
+        ws = new WebSocket(wsUrl);
+
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'update' && data.notepadId === currentNotepadId) {
+                    isReceivingUpdate = true;
+                    editor.value = data.content;
+                    isReceivingUpdate = false;
+                } else if (data.type === 'notepad_change') {
+                    loadNotepads();
+                }
+            } catch (error) {
+                console.error('WebSocket message error:', error);
+            }
+        };
+
+        ws.onclose = () => {
+            // Try to reconnect after 5 seconds
+            setTimeout(setupWebSocket, 5000);
+        };
+    };
+
+    // Initialize WebSocket connection
+    setupWebSocket();
 
     // Start the app immediately since PIN verification is handled by the server
     initializeApp();
