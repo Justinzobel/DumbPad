@@ -1,1 +1,8 @@
-{"notepads":[{"id":"default","name":"main"},{"id":"1737848817548","name":"Num 2"}]}
+{
+  "notepads": [
+    {
+      "id": "default",
+      "name": "main"
+    }
+  ]
+}

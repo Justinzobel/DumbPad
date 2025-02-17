@@ -4,6 +4,7 @@ const cors = require('cors');
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -78,9 +79,45 @@ function secureCompare(a, b) {
     }
 }
 
-app.use(cors());
+// Middleware setup
+app.use(cors({
+    credentials: true,
+    origin: true
+}));
 app.use(express.json());
-app.use(express.static('public'));
+app.use(cookieParser());
+app.use(express.static('public', {
+    index: false
+}));
+
+// Main app route with PIN check
+app.get('/', (req, res) => {
+    const pin = process.env.DUMBPAD_PIN;
+    
+    // Skip PIN if not configured
+    if (!pin || !isValidPin(pin)) {
+        return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    }
+
+    // Check PIN cookie
+    const authCookie = req.cookies[COOKIE_NAME];
+    if (!authCookie || !secureCompare(authCookie, pin)) {
+        return res.redirect('/login');
+    }
+
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Login page route
+app.get('/login', (req, res) => {
+    // If no PIN is required or user is already authenticated, redirect to main app
+    const pin = process.env.DUMBPAD_PIN;
+    if (!pin || !isValidPin(pin) || (req.cookies[COOKIE_NAME] && secureCompare(req.cookies[COOKIE_NAME], pin))) {
+        return res.redirect('/');
+    }
+    
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
 
 // Pin verification endpoint
 app.post('/api/verify-pin', (req, res) => {
@@ -91,16 +128,48 @@ app.post('/api/verify-pin', (req, res) => {
         return res.json({ success: true });
     }
 
+    const ip = req.ip;
+    
+    // Check if IP is locked out
+    if (isLockedOut(ip)) {
+        const attempts = loginAttempts.get(ip);
+        const timeLeft = Math.ceil((LOCKOUT_TIME - (Date.now() - attempts.lastAttempt)) / 1000 / 60);
+        return res.status(429).json({ 
+            error: `Too many attempts. Please try again in ${timeLeft} minutes.`
+        });
+    }
+
     // Validate PIN format
     if (!isValidPin(pin)) {
+        recordAttempt(ip);
         return res.status(400).json({ success: false, error: 'Invalid PIN format' });
     }
 
     // Verify the PIN using constant-time comparison
     if (pin && secureCompare(pin, PIN)) {
+        // Reset attempts on successful login
+        resetAttempts(ip);
+
+        // Set secure HTTP-only cookie
+        res.cookie(COOKIE_NAME, pin, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: COOKIE_MAX_AGE
+        });
         res.json({ success: true });
     } else {
-        res.status(401).json({ success: false, error: 'Invalid PIN' });
+        // Record failed attempt
+        recordAttempt(ip);
+        
+        const attempts = loginAttempts.get(ip);
+        const attemptsLeft = MAX_ATTEMPTS - attempts.count;
+        
+        res.status(401).json({ 
+            success: false, 
+            error: 'Invalid PIN',
+            attemptsLeft: Math.max(0, attemptsLeft)
+        });
     }
 });
 
@@ -123,15 +192,12 @@ app.get('/api/config', (req, res) => {
 
 // Pin protection middleware
 const requirePin = (req, res, next) => {
-    if (!PIN) {
+    if (!PIN || !isValidPin(PIN)) {
         return next();
     }
 
-    const providedPin = req.headers['x-pin'];
-    if (!isValidPin(providedPin)) {
-        return res.status(400).json({ error: 'Invalid PIN format' });
-    }
-    if (!providedPin || !secureCompare(providedPin, PIN)) {
+    const authCookie = req.cookies[COOKIE_NAME];
+    if (!authCookie || !secureCompare(authCookie, PIN)) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     next();
@@ -139,7 +205,7 @@ const requirePin = (req, res, next) => {
 
 // Apply pin protection to all /api routes except pin verification
 app.use('/api', (req, res, next) => {
-    if (req.path === '/verify-pin' || req.path === '/pin-required') {
+    if (req.path === '/verify-pin' || req.path === '/pin-required' || req.path === '/config') {
         return next();
     }
     requirePin(req, res, next);
