@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const renameConfirm = document.getElementById('rename-confirm');
     const deleteCancel = document.getElementById('delete-cancel');
     const deleteConfirm = document.getElementById('delete-confirm');
+    const printNotepadBtn = document.getElementById('print-notepad');
     
     let saveTimeout;
     let lastSaveTime = Date.now();
@@ -25,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let verifiedPin = null;
     let pinLength = 4;
     let pinDigits = [];
+    let baseUrl = '';
 
     // Create PIN input boxes
     function createPinInputs(length) {
@@ -52,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Check if PIN is required
     const checkPinRequired = async () => {
         try {
-            const response = await fetch('/api/pin-required');
+            const response = await fetch(`${baseUrl}/api/pin-required`);
             const { required, length } = await response.json();
             if (required) {
                 pinLength = length;
@@ -147,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update verifyPin function
     const verifyPin = async (pin) => {
         try {
-            const response = await fetch('/api/verify-pin', {
+            const response = await fetch(`${baseUrl}/api/verify-pin`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -404,8 +406,97 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Download current notepad
+    const downloadNotepad = () => {
+        const notepadName = notepadSelector.options[notepadSelector.selectedIndex].text;
+        const content = editor.value;
+        
+        // Create blob with content
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        
+        // Create temporary link and trigger download
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${notepadName}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Cleanup
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        // Show download status
+        saveStatus.textContent = 'Downloaded';
+        saveStatus.classList.add('visible');
+        setTimeout(() => {
+            saveStatus.classList.remove('visible');
+        }, 2000);
+    };
+
+    // Print current notepad
+    const printNotepad = () => {
+        const notepadName = notepadSelector.options[notepadSelector.selectedIndex].text;
+        const content = editor.value;
+        
+        // Create a new window for printing
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>${notepadName}</title>
+                <style>
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        line-height: 1.6;
+                        padding: 2rem;
+                        white-space: pre-wrap;
+                    }
+                    @media print {
+                        body {
+                            padding: 0;
+                        }
+                    }
+                </style>
+            </head>
+            <body>
+                ${content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>')}
+            </body>
+            </html>
+        `);
+        
+        printWindow.document.close();
+        printWindow.focus();
+        
+        // Wait for content to load before printing
+        setTimeout(() => {
+            printWindow.print();
+            // Close the window after printing (some browsers may do this automatically)
+            printWindow.close();
+        }, 250);
+
+        // Show print status
+        saveStatus.textContent = 'Printing...';
+        saveStatus.classList.add('visible');
+        setTimeout(() => {
+            saveStatus.classList.remove('visible');
+        }, 2000);
+    };
+
     // Initialize the app after PIN verification
     const initializeApp = () => {
+        // Fetch site configuration
+        fetch(`${baseUrl}/api/config`)
+            .then(response => response.json())
+            .then(config => {
+                document.getElementById('site-title').textContent = config.siteTitle;
+                document.getElementById('page-title').textContent = `${config.siteTitle} - Simple Notes`;
+                document.getElementById('header-title').textContent = config.siteTitle;
+                baseUrl = config.baseUrl;
+            })
+            .catch(err => console.error('Error loading site configuration:', err));
+
         // Event Listeners
         editor.addEventListener('input', (e) => {
             clearTimeout(saveTimeout);
@@ -420,6 +511,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         newNotepadBtn.addEventListener('click', createNotepad);
+        downloadNotepadBtn.addEventListener('click', downloadNotepad);
 
         renameNotepadBtn.addEventListener('click', () => {
             const currentNotepad = notepadSelector.options[notepadSelector.selectedIndex];
@@ -471,13 +563,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add PIN to all API requests
     const fetchWithPin = async (url, options = {}) => {
-        if (verifiedPin) {
-            options.headers = {
-                ...options.headers,
-                'X-Pin': verifiedPin
-            };
-        }
-        return fetch(url, options);
+        // Add credentials to include cookies
+        options.credentials = 'same-origin';
+        // Ensure URL uses baseUrl
+        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+        return fetch(fullUrl, options);
     };
 
     // Start the app by checking if PIN is required

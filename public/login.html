@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="page-title">DumbPad - Login</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="alternate icon" type="image/png" href="favicon-32.png">
+    <link rel="apple-touch-icon" href="favicon-128.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="light-mode">
+    <div class="container login-container">
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">
+            <svg class="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+            <svg class="sun" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+        </button>
+        <div id="login-content">
+            <div class="pin-header">
+                <h1 id="site-title">DumbPad</h1>
+                <h2>Enter PIN</h2>
+            </div>
+            <div id="pin-container" class="pin-container">
+                <!-- PIN inputs will be added dynamically -->
+            </div>
+            <p id="pin-error" class="error-message"></p>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const pinContainer = document.getElementById('pin-container');
+            const pinError = document.getElementById('pin-error');
+            const themeToggle = document.getElementById('theme-toggle');
+            let pinDigits = [];
+            let pinLength = 4;
+            let baseUrl = '';
+
+            // Create PIN input boxes
+            function createPinInputs(length) {
+                pinContainer.innerHTML = '';
+                pinDigits = [];
+                
+                for (let i = 0; i < length; i++) {
+                    const input = document.createElement('input');
+                    input.type = 'password';
+                    input.className = 'pin-digit';
+                    input.maxLength = 1;
+                    input.pattern = '[0-9]';
+                    input.inputMode = 'numeric';
+                    input.autocomplete = 'off';
+                    
+                    input.addEventListener('input', (e) => handlePinInput(e, i));
+                    input.addEventListener('keydown', (e) => handlePinKeydown(e, i));
+                    input.addEventListener('paste', (e) => e.preventDefault());
+                    
+                    pinContainer.appendChild(input);
+                    pinDigits.push(input);
+                }
+            }
+
+            // Handle PIN input
+            const handlePinInput = (e, index) => {
+                const input = e.target;
+                const value = input.value;
+
+                // Only allow numbers
+                if (!/^\d*$/.test(value)) {
+                    input.value = '';
+                    return;
+                }
+
+                if (value) {
+                    input.classList.add('filled');
+                    // Move to next input if available
+                    if (index < pinDigits.length - 1) {
+                        pinDigits[index + 1].focus();
+                    } else if (index === pinDigits.length - 1) {
+                        // If this is the last digit and it's filled
+                        const pin = Array.from(pinDigits).map(digit => digit.value).join('');
+                        if (pin.length === pinLength) {
+                            // Add a small delay to show the last digit being filled
+                            setTimeout(() => {
+                                verifyPin(pin);
+                            }, 150);
+                        }
+                    }
+                } else {
+                    input.classList.remove('filled');
+                }
+            };
+
+            const handlePinKeydown = (e, index) => {
+                // Handle backspace
+                if (e.key === 'Backspace' && !e.target.value) {
+                    if (index > 0) {
+                        pinDigits[index - 1].focus();
+                        pinDigits[index - 1].value = '';
+                        pinDigits[index - 1].classList.remove('filled');
+                    }
+                }
+                // Handle left arrow
+                else if (e.key === 'ArrowLeft' && index > 0) {
+                    pinDigits[index - 1].focus();
+                }
+                // Handle right arrow
+                else if (e.key === 'ArrowRight' && index < pinDigits.length - 1) {
+                    pinDigits[index + 1].focus();
+                }
+                // Handle enter
+                else if (e.key === 'Enter') {
+                    submitPin();
+                }
+            };
+
+            const submitPin = () => {
+                const pin = Array.from(pinDigits).map(digit => digit.value).join('');
+                if (pin.length === pinLength) {
+                    verifyPin(pin);
+                }
+            };
+
+            // Clear PIN inputs
+            const clearPinInputs = () => {
+                pinDigits.forEach(digit => {
+                    digit.value = '';
+                    digit.classList.remove('filled');
+                });
+                pinDigits[0].focus();
+            };
+
+            // Disable/Enable PIN inputs
+            const setPinInputsDisabled = (disabled) => {
+                pinDigits.forEach(digit => {
+                    digit.disabled = disabled;
+                    if (disabled) {
+                        digit.classList.add('disabled');
+                    } else {
+                        digit.classList.remove('disabled');
+                    }
+                });
+            };
+
+            // Initialize
+            const initialize = async () => {
+                try {
+                    // Fetch site configuration first
+                    const configResponse = await fetch('/api/config');
+                    const config = await configResponse.json();
+                    document.getElementById('site-title').textContent = config.siteTitle;
+                    document.getElementById('page-title').textContent = `${config.siteTitle} - Login`;
+                    baseUrl = config.baseUrl;
+
+                    // Then check PIN requirements
+                    await checkPinRequired();
+                } catch (err) {
+                    console.error('Error during initialization:', err);
+                }
+            };
+
+            // Check if PIN is required
+            const checkPinRequired = async () => {
+                try {
+                    const response = await fetch(`${baseUrl}/api/pin-required`);
+                    const { required, length } = await response.json();
+                    if (required) {
+                        pinLength = length;
+                        createPinInputs(length);
+                        pinDigits[0].focus();
+                    } else {
+                        window.location.href = `${baseUrl}/`;
+                    }
+                } catch (err) {
+                    console.error('Error checking PIN requirement:', err);
+                }
+            };
+
+            // Verify PIN
+            const verifyPin = async (pin) => {
+                try {
+                    const response = await fetch(`${baseUrl}/api/verify-pin`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ pin }),
+                        credentials: 'same-origin'
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        pinError.textContent = '';
+                        window.location.href = `${baseUrl}/`;
+                    } else {
+                        if (response.status === 429) {
+                            pinError.textContent = data.error;
+                            setPinInputsDisabled(true);
+                        } else {
+                            pinError.textContent = `Invalid PIN. ${data.attemptsLeft} attempts remaining.`;
+                        }
+                        clearPinInputs();
+                    }
+                } catch (err) {
+                    console.error('Error verifying PIN:', err);
+                    pinError.textContent = 'Error verifying PIN';
+                    clearPinInputs();
+                }
+            };
+
+            // Initialize theme
+            const initializeTheme = () => {
+                if (localStorage.getItem('theme') === 'dark' || 
+                    (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.body.classList.remove('light-mode');
+                    document.body.classList.add('dark-mode');
+                }
+            };
+
+            // Theme toggle handler
+            const toggleTheme = () => {
+                document.body.classList.toggle('dark-mode');
+                document.body.classList.toggle('light-mode');
+                localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+            };
+
+            initializeTheme();
+            themeToggle.addEventListener('click', toggleTheme);
+            initialize(); // Start initialization
+        });
+    </script>
+</body>
+</html> 

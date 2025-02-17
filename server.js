@@ -10,6 +10,54 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const NOTEPADS_FILE = path.join(DATA_DIR, 'notepads.json');
 const PIN = process.env.DUMBPAD_PIN;
+const COOKIE_NAME = 'dumbpad_auth';
+const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const PAGE_HISTORY_COOKIE = 'dumbpad_page_history';
+const PAGE_HISTORY_COOKIE_AGE = 365 * 24 * 60 * 60 * 1000. // 1 Year
+
+// Brute force protection
+const loginAttempts = new Map();
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+// Reset attempts for an IP
+function resetAttempts(ip) {
+    loginAttempts.delete(ip);
+}
+
+// Check if an IP is locked out
+function isLockedOut(ip) {
+    const attempts = loginAttempts.get(ip);
+    if (!attempts) return false;
+    
+    if (attempts.count >= MAX_ATTEMPTS) {
+        const timeElapsed = Date.now() - attempts.lastAttempt;
+        if (timeElapsed < LOCKOUT_TIME) {
+            return true;
+        }
+        resetAttempts(ip);
+    }
+    return false;
+}
+
+// Record an attempt for an IP
+function recordAttempt(ip) {
+    const attempts = loginAttempts.get(ip) || { count: 0, lastAttempt: 0 };
+    attempts.count += 1;
+    attempts.lastAttempt = Date.now();
+    loginAttempts.set(ip, attempts);
+}
+
+// Cleanup old lockouts periodically
+setInterval(() => {
+    const now = Date.now();
+    for (const [ip, attempts] of loginAttempts.entries()) {
+        if (now - attempts.lastAttempt >= LOCKOUT_TIME) {
+            loginAttempts.delete(ip);
+        }
+    }
+}, 60000); // Clean up every minute
 
 // Validate PIN format
 function isValidPin(pin) {
@@ -59,8 +107,17 @@ app.post('/api/verify-pin', (req, res) => {
 // Check if PIN is required
 app.get('/api/pin-required', (req, res) => {
     res.json({ 
-        required: !!PIN,
-        length: PIN ? PIN.length : 0
+        required: !!PIN && isValidPin(PIN),
+        length: PIN ? PIN.length : 0,
+        locked: isLockedOut(req.ip)
+    });
+});
+
+// Get site configuration
+app.get('/api/config', (req, res) => {
+    res.json({
+        siteTitle: process.env.SITE_TITLE || 'DumbPad',
+        baseUrl: BASE_URL
     });
 });
 

@@ -292,15 +292,16 @@ main {
 }
 
 .pin-header h1 {
-    color: white;
+    color: var(--text-color);
     font-size: 2.5rem;
     margin-bottom: 1rem;
     font-weight: 700;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    text-shadow: none;
 }
 
 .pin-header h2 {
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--text-color);
+    opacity: 0.8;
     font-size: 1.25rem;
     font-weight: 500;
 }
@@ -434,6 +435,41 @@ main {
         width: 2.25rem;
         height: 2.75rem;
         font-size: 1.125rem;
-        margin: 0.2rem;
+        max-width: 28px;
     }
+}
+
+.login-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background-color: var(--bg-color);
+    position: relative;
+}
+
+#login-content {
+    text-align: center;
+    padding: 2rem;
+    border-radius: 12px;
+    max-width: 400px;
+    width: 90%;
+}
+
+/* Theme toggle for login page */
+.login-container #theme-toggle {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem;
+    color: var(--text-color);
+    border-radius: 8px;
+    transition: background-color 0.2s;
+}
+
+.login-container #theme-toggle:hover {
+    background-color: var(--secondary-color);
 } 
