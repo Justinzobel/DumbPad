@@ -276,8 +276,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Event Listeners
     editor.addEventListener('input', (e) => {
+        const change = {
+            start: e.target.selectionStart,
+            end: e.target.selectionEnd,
+            text: e.target.value.substring(e.target.selectionStart, e.target.selectionEnd),
+            fullText: e.target.value
+        };
         debouncedSave(e.target.value);
         checkPeriodicSave(e.target.value);
+        
+        // Send the change immediately through WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN && !isReceivingUpdate) {
+            ws.send(JSON.stringify({
+                type: 'update',
+                userId: userId,
+                notepadId: currentNotepadId,
+                content: e.target.value,
+                change: change
+            }));
+        }
     });
 
     // Track cursor position and selection
@@ -523,17 +540,62 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateCursorPosition(data.userId, data.position);
                 }
                 else if (data.type === 'update' && data.notepadId === currentNotepadId) {
-                    // Handle content updates
+                    // Handle content updates from other users
                     if (data.userId !== userId) {  // Don't apply our own updates
                         const currentPos = editor.selectionStart;
                         isReceivingUpdate = true;
+
+                        // Apply the change while preserving cursor position
+                        if (data.change) {
+                            // If the content length is significantly different, do a full update
+                            if (Math.abs(editor.value.length - data.content.length) > 100) {
+                                editor.value = data.content;
+                            } else {
+                                // Otherwise, try to merge changes
+                                let newContent = data.content;
+                                if (editor.value !== data.content) {
+                                    // Simple merge strategy: keep both changes if they're in different locations
+                                    const localLines = editor.value.split('\n');
+                                    const remoteLines = data.content.split('\n');
+                                    
+                                    // Find and merge different lines
+                                    const mergedLines = [];
+                                    const maxLines = Math.max(localLines.length, remoteLines.length);
+                                    
+                                    for (let i = 0; i < maxLines; i++) {
+                                        if (localLines[i] === remoteLines[i]) {
+                                            mergedLines.push(localLines[i]);
+                                        } else {
+                                            // If one line is undefined, use the other
+                                            if (!localLines[i]) mergedLines.push(remoteLines[i]);
+                                            else if (!remoteLines[i]) mergedLines.push(localLines[i]);
+                                            else {
+                                                // If both lines exist but are different, keep both
+                                                mergedLines.push(localLines[i]);
+                                                if (localLines[i] !== remoteLines[i]) {
+                                                    mergedLines.push(remoteLines[i]);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    newContent = mergedLines.join('\n');
+                                }
+                                editor.value = newContent;
+                            }
+                        } else {
+                            editor.value = data.content;
+                        }
                         
-                        // Apply the update while preserving cursor position
-                        editor.value = data.content;
+                        // Try to maintain cursor position relative to the content
+                        if (currentPos <= editor.value.length) {
+                            editor.setSelectionRange(currentPos, currentPos);
+                        }
                         
-                        // Restore cursor position
-                        editor.setSelectionRange(currentPos, currentPos);
                         isReceivingUpdate = false;
+                        
+                        // Save the merged changes
+                        debouncedSave(editor.value);
                     }
                 }
                 else if (data.type === 'notepad_change') {
