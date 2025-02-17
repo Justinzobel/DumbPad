@@ -5,7 +5,6 @@ A stupid simple, no auth (unless you want it!), modern notepad application with 
 ![image](https://github.com/user-attachments/assets/c6a00aac-f841-48a8-b8d3-c3d5378fc7d9)
 
 ## Table of Contents
-
 - [Features](#features)
 - [Quick Start](#quick-start)
   - [Prerequisites](#prerequisites)
@@ -26,7 +25,7 @@ A stupid simple, no auth (unless you want it!), modern notepad application with 
 - Dark mode support
 - Responsive design
 - Docker support
-- Optional PIN protection
+- Optional PIN protection (4-10 digits)
 - File-based storage
 - Data persistence across updates
 
@@ -167,6 +166,7 @@ docker run -p 3000:3000 -v "${PWD}\data:/app/data" dumbwareio/dumbpad:latest
 * cookie-parser: Cookie handling
 * express-rate-limit: Rate limiting
 
+
 The `data` directory contains:
 - `notepads.json`: List of all notepads
 - Individual `.txt` files for each notepad's content
@@ -178,7 +178,9 @@ The `data` directory contains:
 - Just start typing! Your notes will be automatically saved.
 - Use the theme toggle in the top-right corner to switch between light and dark mode.
 - Press `Ctrl+S` (or `Cmd+S` on Mac) to force save.
-- The save status will be shown at the bottom of the screen.
+- Auto-saves every 10 seconds while typing.
+- Create multiple notepads with the + button.
+- Download notepads as .txt files.
 - If PIN protection is enabled, you'll need to enter the PIN to access the app.
 
 ## Technical Details
@@ -207,6 +209,11 @@ See Development Guide for local setup and guidelines.
 ---
 
 Made with ❤️ by DumbWare.io
+
+## 🌐 Check Us Out
+- **Website:** [dumbware.io](https://www.dumbware.io/)
+- **Buy Us a Coffee:** [buymeacoffee.com/dumbware](https://buymeacoffee.com/dumbware) ☕
+- **Join the Chaos:** [Discord](https://discord.gg/zJutzxWyq2) 💬
 
 ## Future Features
 

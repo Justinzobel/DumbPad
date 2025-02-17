@@ -25,9 +25,9 @@ jobs:
       # Step 3: Build the Docker image
       - name: Build Docker Image
         run: |
-          docker build -t abite3/dumbpad:latest .
+          docker build -t dumbwareio/dumbpad:latest .
 
       # Step 4: Push the Docker image to Docker Hub
       - name: Push Docker Image
         run: |
-          docker push abite3/dumbpad:latest 
+          docker push dumbwareio/dumbpad:latest 
