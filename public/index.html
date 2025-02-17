@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DumbPad - Simple Notes</title>
+    <title id="page-title">DumbPad - Simple Notes</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="alternate icon" type="image/png" href="favicon-32.png">
     <link rel="apple-touch-icon" href="favicon-128.png">
@@ -13,7 +13,7 @@
     <div id="pin-modal" class="modal">
         <div class="modal-content">
             <div class="pin-header">
-                <h1>DumbPad</h1>
+                <h1 id="site-title">DumbPad</h1>
                 <h2>Enter PIN</h2>
             </div>
             <div id="pin-container" class="pin-container">
@@ -36,6 +36,7 @@
                 </button>
                 <div class="select-wrapper">
                     <select id="notepad-selector">
+                        <option value="default">Default Notepad</option>
                     </select>
                     <button id="rename-notepad" class="icon-button" aria-label="Rename current notepad">
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -49,6 +50,13 @@
                             <line x1="12" y1="15" x2="12" y2="3"></line>
                         </svg>
                     </button>
+                    <button id="print-notepad" class="icon-button" aria-label="Print current notepad">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                            <rect x="6" y="14" width="12" height="8"></rect>
+                        </svg>
+                    </button>
                     <button id="delete-notepad" class="icon-button" aria-label="Delete current notepad">
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M3 6h18"></path>
@@ -58,7 +66,7 @@
                     </button>
                 </div>
             </div>
-            <h1>DumbPad</h1>
+            <h1 id="header-title">DumbPad</h1>
             <button id="theme-toggle" aria-label="Toggle dark mode">
                 <svg class="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>

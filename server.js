@@ -4,7 +4,6 @@ const cors = require('cors');
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
-const cookieParser = require('cookie-parser');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,6 +12,7 @@ const NOTEPADS_FILE = path.join(DATA_DIR, 'notepads.json');
 const PIN = process.env.DUMBPAD_PIN;
 const COOKIE_NAME = 'dumbpad_auth';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const PAGE_HISTORY_COOKIE = 'dumbpad_page_history';
 const PAGE_HISTORY_COOKIE_AGE = 365 * 24 * 60 * 60 * 1000. // 1 Year
 
@@ -78,44 +78,9 @@ function secureCompare(a, b) {
     }
 }
 
-app.use(cors({
-    credentials: true,
-    origin: true
-}));
+app.use(cors());
 app.use(express.json());
-app.use(cookieParser());
-app.use(express.static('public', {
-    index: false
-}));
-
-// Main app route with PIN check
-app.get('/', (req, res) => {
-    const pin = process.env.DUMBPAD_PIN;
-    
-    // Skip PIN if not configured
-    if (!pin || !isValidPin(pin)) {
-        return res.sendFile(path.join(__dirname, 'public', 'index.html'));
-    }
-
-    // Check PIN cookie
-    const authCookie = req.cookies[COOKIE_NAME];
-    if (!authCookie || !secureCompare(authCookie, pin)) {
-        return res.redirect('/login');
-    }
-
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Login page route
-app.get('/login', (req, res) => {
-    // If no PIN is required or user is already authenticated, redirect to main app
-    const pin = process.env.DUMBPAD_PIN;
-    if (!pin || !isValidPin(pin) || (req.cookies[COOKIE_NAME] && secureCompare(req.cookies[COOKIE_NAME], pin))) {
-        return res.redirect('/');
-    }
-    
-    res.sendFile(path.join(__dirname, 'public', 'login.html'));
-});
+app.use(express.static('public'));
 
 // Pin verification endpoint
 app.post('/api/verify-pin', (req, res) => {
@@ -126,48 +91,16 @@ app.post('/api/verify-pin', (req, res) => {
         return res.json({ success: true });
     }
 
-    const ip = req.ip;
-    
-    // Check if IP is locked out
-    if (isLockedOut(ip)) {
-        const attempts = loginAttempts.get(ip);
-        const timeLeft = Math.ceil((LOCKOUT_TIME - (Date.now() - attempts.lastAttempt)) / 1000 / 60);
-        return res.status(429).json({ 
-            error: `Too many attempts. Please try again in ${timeLeft} minutes.`
-        });
-    }
-
     // Validate PIN format
     if (!isValidPin(pin)) {
-        recordAttempt(ip);
         return res.status(400).json({ success: false, error: 'Invalid PIN format' });
     }
 
     // Verify the PIN using constant-time comparison
     if (pin && secureCompare(pin, PIN)) {
-        // Reset attempts on successful login
-        resetAttempts(ip);
-
-        // Set secure HTTP-only cookie
-        res.cookie(COOKIE_NAME, pin, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: COOKIE_MAX_AGE
-        });
         res.json({ success: true });
     } else {
-        // Record failed attempt
-        recordAttempt(ip);
-        
-        const attempts = loginAttempts.get(ip);
-        const attemptsLeft = MAX_ATTEMPTS - attempts.count;
-        
-        res.status(401).json({ 
-            success: false, 
-            error: 'Invalid PIN',
-            attemptsLeft: Math.max(0, attemptsLeft)
-        });
+        res.status(401).json({ success: false, error: 'Invalid PIN' });
     }
 });
 
@@ -175,18 +108,30 @@ app.post('/api/verify-pin', (req, res) => {
 app.get('/api/pin-required', (req, res) => {
     res.json({ 
         required: !!PIN && isValidPin(PIN),
-        length: PIN ? PIN.length : 0
+        length: PIN ? PIN.length : 0,
+        locked: isLockedOut(req.ip)
+    });
+});
+
+// Get site configuration
+app.get('/api/config', (req, res) => {
+    res.json({
+        siteTitle: process.env.SITE_TITLE || 'DumbPad',
+        baseUrl: BASE_URL
     });
 });
 
 // Pin protection middleware
 const requirePin = (req, res, next) => {
-    if (!PIN || !isValidPin(PIN)) {
+    if (!PIN) {
         return next();
     }
 
-    const authCookie = req.cookies[COOKIE_NAME];
-    if (!authCookie || !secureCompare(authCookie, PIN)) {
+    const providedPin = req.headers['x-pin'];
+    if (!isValidPin(providedPin)) {
+        return res.status(400).json({ error: 'Invalid PIN format' });
+    }
+    if (!providedPin || !secureCompare(providedPin, PIN)) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     next();
@@ -248,10 +193,7 @@ app.get('/api/notepads', async (req, res) => {
     try {
         await ensureDataDir();
         const data = await fs.readFile(NOTEPADS_FILE, 'utf8');
-
-        // Return the existing cookie value along with notes
-        const note_history = req.cookies.dumbpad_page_history || 'default';
-        res.json({'notepads_list':JSON.parse(data), 'note_history':note_history});
+        res.json(JSON.parse(data));
     } catch (err) {
         res.status(500).json({ error: 'Error reading notepads list' });
     }
@@ -267,15 +209,6 @@ app.post('/api/notepads', async (req, res) => {
             name: `Notepad ${data.notepads.length + 1}`
         };
         data.notepads.push(newNotepad);
-
-        // Set new notes as the current page in cookies.
-        res.cookie(PAGE_HISTORY_COOKIE, id, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: PAGE_HISTORY_COOKIE_AGE
-        });
-
         await fs.writeFile(NOTEPADS_FILE, JSON.stringify(data));
         await fs.writeFile(path.join(DATA_DIR, `${id}.txt`), '');
         res.json(newNotepad);
@@ -284,7 +217,7 @@ app.post('/api/notepads', async (req, res) => {
     }
 });
 
-// Rename notepad   
+// Rename notepad
 app.put('/api/notepads/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -308,15 +241,6 @@ app.get('/api/notes/:id', async (req, res) => {
         const { id } = req.params;
         const notePath = path.join(DATA_DIR, `${id}.txt`);
         const notes = await fs.readFile(notePath, 'utf8').catch(() => '');
-        
-        // Set loaded notes as the current page in cookies.
-        res.cookie(PAGE_HISTORY_COOKIE, id, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: PAGE_HISTORY_COOKIE_AGE
-        });
-
         res.json({ content: notes });
     } catch (err) {
         res.status(500).json({ error: 'Error reading notes' });

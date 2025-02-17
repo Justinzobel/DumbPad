@@ -292,55 +292,44 @@ main {
 }
 
 .pin-header h1 {
-    color: white;
+    color: var(--text-color);
     font-size: 2.5rem;
     margin-bottom: 1rem;
     font-weight: 700;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    text-shadow: none;
 }
 
 .pin-header h2 {
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--text-color);
+    opacity: 0.8;
     font-size: 1.25rem;
     font-weight: 500;
 }
 
 .pin-container {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     justify-content: center;
+    flex-wrap: wrap;
     margin: 2rem 0;
+    max-width: 280px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .pin-digit {
-    width: 35px;
-    height: 45px;
-    text-align: center;
-    font-size: 1.25rem;
+    width: 2.5rem;
+    height: 3rem;
+    padding: 0;
     border: 2px solid var(--secondary-color);
-    border-radius: 8px;
+    border-radius: 12px;
     background-color: var(--textarea-bg);
     color: var(--text-color);
+    font-size: 1.25rem;
+    text-align: center;
     transition: all 0.2s ease;
-    flex: none;
-    max-width: 30px;
-    padding: 0;
-}
-
-.pin-digit:disabled,
-.pin-digit.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    border-color: var(--secondary-color) !important;
-    background-color: var(--textarea-bg) !important;
-    color: var(--text-color) !important;
-    box-shadow: none !important;
-}
-
-.pin-digit.disabled:focus {
-    outline: none;
-    border-color: var(--secondary-color);
-    box-shadow: none;
+    caret-color: var(--primary-color);
+    margin: 0.25rem;
 }
 
 .pin-digit:focus {
@@ -359,7 +348,6 @@ main {
     color: var(--danger-color);
     margin-top: 1rem;
     font-size: 0.875rem;
-    min-height: 1.25rem;
 }
 
 .modal-buttons button.primary {
@@ -439,12 +427,13 @@ main {
 
 @media (max-width: 480px) {
     .pin-container {
-        gap: 0.5rem;
+        gap: 0.4rem;
+        max-width: 240px;
     }
 
     .pin-digit {
-        width: 32px;
-        height: 40px;
+        width: 2.25rem;
+        height: 2.75rem;
         font-size: 1.125rem;
         max-width: 28px;
     }
@@ -456,6 +445,7 @@ main {
     justify-content: center;
     min-height: 100vh;
     background-color: var(--bg-color);
+    position: relative;
 }
 
 #login-content {
@@ -464,4 +454,22 @@ main {
     border-radius: 12px;
     max-width: 400px;
     width: 90%;
+}
+
+/* Theme toggle for login page */
+.login-container #theme-toggle {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem;
+    color: var(--text-color);
+    border-radius: 8px;
+    transition: background-color 0.2s;
+}
+
+.login-container #theme-toggle:hover {
+    background-color: var(--secondary-color);
 } 

@@ -5,7 +5,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const notepadSelector = document.getElementById('notepad-selector');
     const newNotepadBtn = document.getElementById('new-notepad');
     const renameNotepadBtn = document.getElementById('rename-notepad');
-    const downloadNotepadBtn = document.getElementById('download-notepad');
     const deleteNotepadBtn = document.getElementById('delete-notepad');
     const renameModal = document.getElementById('rename-modal');
     const deleteModal = document.getElementById('delete-modal');
@@ -18,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const renameConfirm = document.getElementById('rename-confirm');
     const deleteCancel = document.getElementById('delete-cancel');
     const deleteConfirm = document.getElementById('delete-confirm');
+    const printNotepadBtn = document.getElementById('print-notepad');
     
     let saveTimeout;
     let lastSaveTime = Date.now();
@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let verifiedPin = null;
     let pinLength = 4;
     let pinDigits = [];
+    let baseUrl = '';
 
     // Create PIN input boxes
     function createPinInputs(length) {
@@ -53,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Check if PIN is required
     const checkPinRequired = async () => {
         try {
-            const response = await fetch('/api/pin-required');
+            const response = await fetch(`${baseUrl}/api/pin-required`);
             const { required, length } = await response.json();
             if (required) {
                 pinLength = length;
@@ -148,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update verifyPin function
     const verifyPin = async (pin) => {
         try {
-            const response = await fetch('/api/verify-pin', {
+            const response = await fetch(`${baseUrl}/api/verify-pin`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -211,14 +212,10 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetchWithPin('/api/notepads');
             const data = await response.json();
-
-            // Read the existing cookie value
-            currentNotepadId = data['note_history'];
-            
-            // Set the appropriate selector value based on the history
-            notepadSelector.innerHTML = data.notepads_list.notepads
-                .map(pad => `<option value="${pad.id}"${pad.id === currentNotepadId?'selected':''}>${pad.name}</option>`)
+            notepadSelector.innerHTML = data.notepads
+                .map(pad => `<option value="${pad.id}">${pad.name}</option>`)
                 .join('');
+            return data.notepads;
         } catch (err) {
             console.error('Error loading notepads:', err);
             return [];
@@ -437,8 +434,69 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2000);
     };
 
+    // Print current notepad
+    const printNotepad = () => {
+        const notepadName = notepadSelector.options[notepadSelector.selectedIndex].text;
+        const content = editor.value;
+        
+        // Create a new window for printing
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>${notepadName}</title>
+                <style>
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        line-height: 1.6;
+                        padding: 2rem;
+                        white-space: pre-wrap;
+                    }
+                    @media print {
+                        body {
+                            padding: 0;
+                        }
+                    }
+                </style>
+            </head>
+            <body>
+                ${content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>')}
+            </body>
+            </html>
+        `);
+        
+        printWindow.document.close();
+        printWindow.focus();
+        
+        // Wait for content to load before printing
+        setTimeout(() => {
+            printWindow.print();
+            // Close the window after printing (some browsers may do this automatically)
+            printWindow.close();
+        }, 250);
+
+        // Show print status
+        saveStatus.textContent = 'Printing...';
+        saveStatus.classList.add('visible');
+        setTimeout(() => {
+            saveStatus.classList.remove('visible');
+        }, 2000);
+    };
+
     // Initialize the app after PIN verification
     const initializeApp = () => {
+        // Fetch site configuration
+        fetch(`${baseUrl}/api/config`)
+            .then(response => response.json())
+            .then(config => {
+                document.getElementById('site-title').textContent = config.siteTitle;
+                document.getElementById('page-title').textContent = `${config.siteTitle} - Simple Notes`;
+                document.getElementById('header-title').textContent = config.siteTitle;
+                baseUrl = config.baseUrl;
+            })
+            .catch(err => console.error('Error loading site configuration:', err));
+
         // Event Listeners
         editor.addEventListener('input', (e) => {
             clearTimeout(saveTimeout);
@@ -507,9 +565,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchWithPin = async (url, options = {}) => {
         // Add credentials to include cookies
         options.credentials = 'same-origin';
-        return fetch(url, options);
+        // Ensure URL uses baseUrl
+        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+        return fetch(fullUrl, options);
     };
 
     // Start the app by checking if PIN is required
-    initializeApp();
+    checkPinRequired();
 }); 
