@@ -13,8 +13,20 @@ const NOTEPADS_FILE = path.join(DATA_DIR, 'notepads.json');
 const PIN = process.env.DUMBPAD_PIN;
 const COOKIE_NAME = 'dumbpad_auth';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const PAGE_HISTORY_COOKIE = 'dumbpad_page_history';
-const PAGE_HISTORY_COOKIE_AGE = 365 * 24 * 60 * 60 * 1000. // 1 Year
+const PAGE_HISTORY_COOKIE_AGE = 365 * 24 * 60 * 60 * 1000; // 1 Year
+
+// Trust proxy - required for secure cookies behind a reverse proxy
+app.set('trust proxy', 1);
+
+// CORS configuration
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production' ? [BASE_URL, 'https://pad.000169.xyz'] : true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+};
 
 // Brute force protection
 const loginAttempts = new Map();
@@ -78,10 +90,8 @@ function secureCompare(a, b) {
     }
 }
 
-app.use(cors({
-    credentials: true,
-    origin: true
-}));
+// Middleware setup
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static('public', {
@@ -151,9 +161,11 @@ app.post('/api/verify-pin', (req, res) => {
         // Set secure HTTP-only cookie
         res.cookie(COOKIE_NAME, pin, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: COOKIE_MAX_AGE
+            secure: true,
+            sameSite: 'lax',
+            maxAge: COOKIE_MAX_AGE,
+            path: '/',
+            domain: process.env.NODE_ENV === 'production' ? '.000169.xyz' : undefined
         });
         res.json({ success: true });
     } else {
@@ -175,7 +187,16 @@ app.post('/api/verify-pin', (req, res) => {
 app.get('/api/pin-required', (req, res) => {
     res.json({ 
         required: !!PIN && isValidPin(PIN),
-        length: PIN ? PIN.length : 0
+        length: PIN ? PIN.length : 0,
+        locked: isLockedOut(req.ip)
+    });
+});
+
+// Get site configuration
+app.get('/api/config', (req, res) => {
+    res.json({
+        siteTitle: process.env.SITE_TITLE || 'DumbPad',
+        baseUrl: BASE_URL
     });
 });
 
@@ -194,7 +215,7 @@ const requirePin = (req, res, next) => {
 
 // Apply pin protection to all /api routes except pin verification
 app.use('/api', (req, res, next) => {
-    if (req.path === '/verify-pin' || req.path === '/pin-required') {
+    if (req.path === '/verify-pin' || req.path === '/pin-required' || req.path === '/config') {
         return next();
     }
     requirePin(req, res, next);
@@ -248,10 +269,7 @@ app.get('/api/notepads', async (req, res) => {
     try {
         await ensureDataDir();
         const data = await fs.readFile(NOTEPADS_FILE, 'utf8');
-
-        // Return the existing cookie value along with notes
-        const note_history = req.cookies.dumbpad_page_history || 'default';
-        res.json({'notepads_list':JSON.parse(data), 'note_history':note_history});
+        res.json(JSON.parse(data));
     } catch (err) {
         res.status(500).json({ error: 'Error reading notepads list' });
     }
@@ -267,15 +285,6 @@ app.post('/api/notepads', async (req, res) => {
             name: `Notepad ${data.notepads.length + 1}`
         };
         data.notepads.push(newNotepad);
-
-        // Set new notes as the current page in cookies.
-        res.cookie(PAGE_HISTORY_COOKIE, id, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: PAGE_HISTORY_COOKIE_AGE
-        });
-
         await fs.writeFile(NOTEPADS_FILE, JSON.stringify(data));
         await fs.writeFile(path.join(DATA_DIR, `${id}.txt`), '');
         res.json(newNotepad);
@@ -284,7 +293,7 @@ app.post('/api/notepads', async (req, res) => {
     }
 });
 
-// Rename notepad   
+// Rename notepad
 app.put('/api/notepads/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -308,15 +317,6 @@ app.get('/api/notes/:id', async (req, res) => {
         const { id } = req.params;
         const notePath = path.join(DATA_DIR, `${id}.txt`);
         const notes = await fs.readFile(notePath, 'utf8').catch(() => '');
-        
-        // Set loaded notes as the current page in cookies.
-        res.cookie(PAGE_HISTORY_COOKIE, id, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: PAGE_HISTORY_COOKIE_AGE
-        });
-
         res.json({ content: notes });
     } catch (err) {
         res.status(500).json({ error: 'Error reading notes' });
@@ -383,6 +383,13 @@ app.delete('/api/notepads/:id', async (req, res) => {
     }
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`Base URL: ${BASE_URL}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 }); 

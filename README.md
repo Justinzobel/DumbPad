@@ -4,7 +4,20 @@ A stupid simple, no auth (unless you want it!), modern notepad application with 
 
 ![image](https://github.com/user-attachments/assets/c6a00aac-f841-48a8-b8d3-c3d5378fc7d9)
 
-![image](https://github.com/user-attachments/assets/6553f4e9-8764-4fb7-87b5-be872391df8c)
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Option 1: Docker](#option-1-docker-for-dummies)
+  - [Option 2: Docker Compose](#option-2-docker-compose-for-dummies-who-like-customizing)
+  - [Option 3: Running Locally](#option-3-running-locally-for-developers)
+- [Configuration](#configuration)
+- [Security](#security)
+- [Technical Details](#technical-details)
+- [Links](#links)
+- [Contributing](#contributing)
+- [Future Features](#future-features)
 
 ## Features
 
@@ -13,132 +26,150 @@ A stupid simple, no auth (unless you want it!), modern notepad application with 
 - Dark mode support
 - Responsive design
 - Docker support
-- Optional PIN protection (4-10 digits)
+- Optional PIN protection
 - File-based storage
 - Data persistence across updates
 
 ## Quick Start
 
-### Using Docker (Recommended)
+### Prerequisites
+
+* Docker (recommended)
+* Node.js >=20.0.0 (for local development)
+
+### Option 1: Docker (For Dummies)
 
 ```bash
-# Pull the latest image
-docker pull dumbwareio/dumbpad:latest
-
-# Run without PIN protection
+# Pull and run with one command
 docker run -p 3000:3000 \
-  -v "$(pwd)/data:/app/data" \
-  dumbwareio/dumbpad
-
-# Run with PIN protection
-docker run -p 3000:3000 \
-  -v "$(pwd)/data:/app/data" \
-  -e DUMBPAD_PIN=1234 \
-  dumbwareio/dumbpad
+  -v ./data:/app/data \
+  dumbwareio/dumbpad:latest
 ```
 
-### Running Locally
+1. Go to http://localhost:3000
+2. Start typing - Your notes auto-save
+3. Marvel at how dumb easy this was
 
-1. Clone the repository:
+### Option 2: Docker Compose (For Dummies who like customizing)
+
+Create a `docker-compose.yml` file:
+
+```yaml
+services:
+  dumbpad:
+    image: dumbwareio/dumbpad:latest
+    ports:
+      - 3000:3000
+    volumes:
+      # Where your notes will be stored
+      - ./data:/app/data
+    environment:
+      # The title shown in the web interface
+      SITE_TITLE: DumbPad
+      # Optional PIN protection (leave empty to disable)
+      DUMBPAD_PIN: 1234
+      # The base URL for the application
+      BASE_URL: http://localhost:3000
+```
+
+Then run:
 ```bash
-git clone https://github.com/dumbwareio/dumbpad.git
-cd dumbpad
+docker compose up -d
 ```
 
-2. Install dependencies:
+1. Go to http://localhost:3000
+2. Start typing - Your notes auto-save
+3. Rejoice in the glory of your dumb notes
+
+### Option 3: Running Locally (For Developers)
+
+1. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Set up environment:
+2. Set environment variables in `.env`:
 ```bash
-cp .env.example .env
-# Edit .env as needed
+PORT=3000                  # Port to run the server on
+DUMBPAD_PIN=1234          # Optional PIN protection
+SITE_TITLE=DumbPad        # Custom site title
+BASE_URL=http://localhost:3000  # Base URL for the application
 ```
 
-4. Start the server:
+3. Start the server:
 ```bash
 npm start
 ```
 
-The application will be available at `http://localhost:3000`
+#### Windows Users
 
-## Environment Variables
-
-Copy `.env.example` to `.env` and configure:
-
-| Variable      | Description                | Default | Required |
-|--------------|----------------------------|---------|----------|
-| PORT         | Server port                | 3000    | No       |
-| DUMBPAD_PIN  | 4-10 digit PIN protection  | None    | No       |
-
-## Security Features
-
-### PIN Protection
-- Optional 4-10 digit PIN
-- Brute force protection:
-  - 5 attempts maximum
-  - 15-minute lockout after failed attempts
-  - IP-based tracking
-  - Constant-time comparison
-  - Secure cookie storage
-
-### Data Security
-- File-based storage in `data` directory
-- Data directory excluded from version control
-- Secure volume mounting in Docker
-
-## Building from Source
-
-1. Clone and build:
-```bash
-git clone https://github.com/dumbwareio/dumbpad.git
-cd dumbpad
-docker build -t dumbwareio/dumbpad:latest .
+If you're using Windows PowerShell with Docker, use this format for paths:
+```powershell
+docker run -p 3000:3000 -v "${PWD}\data:/app/data" dumbwareio/dumbpad:latest
 ```
 
-2. Run your local build:
-```bash
-docker run -p 3000:3000 \
-  -v "$(pwd)/data:/app/data" \
-  dumbwareio/dumbpad:latest
-```
+## Features
 
-## Data Persistence
+* 📝 Auto-saving notes
+* 🌓 Dark/Light mode support
+* 🔒 Optional PIN protection
+* 📱 Mobile-friendly interface
+* 🗂️ Multiple notepads
+* ⬇️ Download notes as text files
+* 🖨️ Print functionality
+* 🔄 Real-time saving
+* ⚡ Zero dependencies on client-side
+* 🛡️ Built-in security features
+* 🎨 Clean, modern interface
+* 📦 Docker support with easy configuration
 
-Your notes are stored in the `data` directory, which is:
-- Excluded from version control (via `.gitignore`)
-- Preserved when updating the application
-- Mounted as a volume when running with Docker
+## Configuration
 
-To ensure your notes persist across updates:
+### Environment Variables
 
-1. If running locally:
-   ```bash
-   # First time setup
-   mkdir -p data
-   touch data/.gitkeep
+| Variable      | Description                                | Default               | Required |
+|--------------|--------------------------------------------|-----------------------|----------|
+| PORT         | Server port                                | 3000                  | No       |
+| BASE_URL     | Base URL for the application              | http://localhost:PORT | No       |
+| DUMBPAD_PIN  | PIN protection (4-10 digits)              | None                  | No       |
+| SITE_TITLE   | Site title displayed in header            | DumbPad               | No       |
 
-   # When updating
-   git stash        # Stash any local changes
-   git pull        # Pull latest changes
-   git stash pop   # Restore local changes
-   ```
+## Security
 
-2. If running with Docker:
-   ```bash
-   # First time setup
-   mkdir -p data
-   
-   # Running with proper volume mount
-   docker run -p 3000:3000 \
-     -v "$(pwd)/data:/app/data" \
-     dumbwareio/dumbpad:latest
+### Features
 
-   # When updating
-   docker pull dumbwareio/dumbpad:latest
-   # Then run again with the same volume mount
-   ```
+* Variable-length PIN support (4-10 digits)
+* Constant-time PIN comparison
+* Brute force protection:
+  * 5 attempts maximum
+  * 15-minute lockout after failed attempts
+  * IP-based tracking
+* Secure cookie handling
+* No client-side PIN storage
+* Rate limiting
+
+## Technical Details
+
+### Stack
+
+* **Backend**: Node.js (>=20.0.0) with Express
+* **Frontend**: Vanilla JavaScript (ES6+)
+* **Container**: Docker with multi-stage builds
+* **Security**: Express security middleware
+* **Storage**: File-based with auto-save
+* **Theme**: Dynamic dark/light mode with system preference support
+
+### Dependencies
+
+* express: Web framework
+* cors: Cross-origin resource sharing
+* dotenv: Environment configuration
+* cookie-parser: Cookie handling
+* express-rate-limit: Rate limiting
+
+The `data` directory contains:
+- `notepads.json`: List of all notepads
+- Individual `.txt` files for each notepad's content
 
 ⚠️ Important: Never delete the `data` directory when updating! This is where all your notes are stored.
 
@@ -147,9 +178,7 @@ To ensure your notes persist across updates:
 - Just start typing! Your notes will be automatically saved.
 - Use the theme toggle in the top-right corner to switch between light and dark mode.
 - Press `Ctrl+S` (or `Cmd+S` on Mac) to force save.
-- Auto-saves every 10 seconds while typing.
-- Create multiple notepads with the + button.
-- Download notepads as .txt files.
+- The save status will be shown at the bottom of the screen.
 - If PIN protection is enabled, you'll need to enter the PIN to access the app.
 
 ## Technical Details
@@ -168,7 +197,21 @@ To ensure your notes persist across updates:
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch: `git checkout -b feature/my-feature`
-3. Commit your changes: `git commit -am 'Add my feature'`
-4. Push to the branch: `git push origin feature/my-feature`
-5. Submit a pull request
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes using conventional commits
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+See Development Guide for local setup and guidelines.
+
+---
+
+Made with ❤️ by DumbWare.io
+
+## Future Features
+
+* Markdown support
+* File attachments
+* Collaborative editing
+
+> Got an idea? Open an issue or submit a PR

@@ -3,17 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DumbPad - Login</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="alternate icon" type="image/png" href="favicon-32.png">
-    <link rel="apple-touch-icon" href="favicon-128.png">
+    <title id="page-title">DumbPad - Login</title>
+    <link rel="icon" type="image/svg+xml" href="Assets/dumbpad.svg">
+    <link rel="alternate icon" type="image/png" href="Assets/dumbpad.png">
+    <link rel="apple-touch-icon" href="Assets/dumbpad.png">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body class="light-mode">
     <div class="container login-container">
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">
+            <svg class="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+            <svg class="sun" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+        </button>
         <div id="login-content">
             <div class="pin-header">
-                <h1>DumbPad</h1>
+                <h1 id="site-title">DumbPad</h1>
                 <h2>Enter PIN</h2>
             </div>
             <div id="pin-container" class="pin-container">
@@ -26,8 +42,10 @@
         document.addEventListener('DOMContentLoaded', () => {
             const pinContainer = document.getElementById('pin-container');
             const pinError = document.getElementById('pin-error');
+            const themeToggle = document.getElementById('theme-toggle');
             let pinDigits = [];
             let pinLength = 4;
+            let baseUrl = '';
 
             // Create PIN input boxes
             function createPinInputs(length) {
@@ -134,10 +152,44 @@
                 });
             };
 
+            // Initialize
+            const initialize = async () => {
+                try {
+                    // Fetch site configuration first
+                    const configResponse = await fetch('/api/config');
+                    const config = await configResponse.json();
+                    document.getElementById('site-title').textContent = config.siteTitle;
+                    document.getElementById('page-title').textContent = `${config.siteTitle} - Login`;
+                    baseUrl = config.baseUrl;
+
+                    // Then check PIN requirements
+                    await checkPinRequired();
+                } catch (err) {
+                    console.error('Error during initialization:', err);
+                }
+            };
+
+            // Check if PIN is required
+            const checkPinRequired = async () => {
+                try {
+                    const response = await fetch(`${baseUrl}/api/pin-required`);
+                    const { required, length } = await response.json();
+                    if (required) {
+                        pinLength = length;
+                        createPinInputs(length);
+                        pinDigits[0].focus();
+                    } else {
+                        window.location.href = `${baseUrl}/`;
+                    }
+                } catch (err) {
+                    console.error('Error checking PIN requirement:', err);
+                }
+            };
+
             // Verify PIN
             const verifyPin = async (pin) => {
                 try {
-                    const response = await fetch('/api/verify-pin', {
+                    const response = await fetch(`${baseUrl}/api/verify-pin`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -149,7 +201,7 @@
                     const data = await response.json();
                     if (data.success) {
                         pinError.textContent = '';
-                        window.location.href = '/';
+                        window.location.href = `${baseUrl}/`;
                     } else {
                         if (response.status === 429) {
                             pinError.textContent = data.error;
@@ -166,41 +218,6 @@
                 }
             };
 
-            // Initialize
-            const checkPinRequired = async () => {
-                try {
-                    const response = await fetch('/api/pin-required');
-                    const { required, length } = await response.json();
-                    if (required) {
-                        pinLength = length;
-                        createPinInputs(length);
-                        // Check if user is currently locked out
-                        const lockoutCheck = await fetch('/api/verify-pin', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ pin: '0000' }),
-                            credentials: 'same-origin'
-                        });
-                        const lockoutData = await lockoutCheck.json();
-                        
-                        if (lockoutCheck.status === 429) {
-                            pinError.textContent = lockoutData.error;
-                            setPinInputsDisabled(true);
-                        } else {
-                            setPinInputsDisabled(false);
-                            pinDigits[0].focus();
-                        }
-                    } else {
-                        window.location.href = '/';
-                    }
-                } catch (err) {
-                    console.error('Error checking PIN requirement:', err);
-                }
-            };
-
-            // Initialize
-            checkPinRequired();
-
             // Initialize theme
             const initializeTheme = () => {
                 if (localStorage.getItem('theme') === 'dark' || 
@@ -210,7 +227,16 @@
                 }
             };
 
+            // Theme toggle handler
+            const toggleTheme = () => {
+                document.body.classList.toggle('dark-mode');
+                document.body.classList.toggle('light-mode');
+                localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+            };
+
             initializeTheme();
+            themeToggle.addEventListener('click', toggleTheme);
+            initialize(); // Start initialization
         });
     </script>
 </body>
