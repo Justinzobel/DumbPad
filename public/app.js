@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const notepadSelector = document.getElementById('notepad-selector');
     const newNotepadBtn = document.getElementById('new-notepad');
     const renameNotepadBtn = document.getElementById('rename-notepad');
+    const downloadNotepadBtn = document.getElementById('download-notepad');
     const deleteNotepadBtn = document.getElementById('delete-notepad');
     const renameModal = document.getElementById('rename-modal');
     const deleteModal = document.getElementById('delete-modal');
@@ -212,10 +213,14 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetchWithPin('/api/notepads');
             const data = await response.json();
-            notepadSelector.innerHTML = data.notepads
-                .map(pad => `<option value="${pad.id}">${pad.name}</option>`)
+
+            // Read the existing cookie value
+            currentNotepadId = data['note_history'];
+            
+            // Set the appropriate selector value based on the history
+            notepadSelector.innerHTML = data.notepads_list.notepads
+                .map(pad => `<option value="${pad.id}"${pad.id === currentNotepadId?'selected':''}>${pad.name}</option>`)
                 .join('');
-            return data.notepads;
         } catch (err) {
             console.error('Error loading notepads:', err);
             return [];
@@ -512,6 +517,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         newNotepadBtn.addEventListener('click', createNotepad);
         downloadNotepadBtn.addEventListener('click', downloadNotepad);
+        printNotepadBtn.addEventListener('click', printNotepad);
 
         renameNotepadBtn.addEventListener('click', () => {
             const currentNotepad = notepadSelector.options[notepadSelector.selectedIndex];
@@ -571,5 +577,5 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Start the app by checking if PIN is required
-    checkPinRequired();
+    initializeApp();
 }); 

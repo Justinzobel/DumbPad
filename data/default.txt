@@ -1,3 +1,1 @@
 This is the notepad. Nothing more, nothing less.
-
-123455 now if I type a bunch does it save while typing

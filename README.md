@@ -13,7 +13,7 @@ A stupid simple, no auth (unless you want it!), modern notepad application with 
 - Dark mode support
 - Responsive design
 - Docker support
-- Optional PIN protection
+- Optional PIN protection (4-10 digits)
 - File-based storage
 - Data persistence across updates
 
@@ -154,10 +154,6 @@ docker run -p 3000:3000 -v "${PWD}\data:/app/data" dumbwareio/dumbpad:latest
 * cookie-parser: Cookie handling
 * express-rate-limit: Rate limiting
 
-The `data` directory contains:
-- `notepads.json`: List of all notepads
-- Individual `.txt` files for each notepad's content
-
 ⚠️ Important: Never delete the `data` directory when updating! This is where all your notes are stored.
 
 ## Usage
@@ -165,7 +161,9 @@ The `data` directory contains:
 - Just start typing! Your notes will be automatically saved.
 - Use the theme toggle in the top-right corner to switch between light and dark mode.
 - Press `Ctrl+S` (or `Cmd+S` on Mac) to force save.
-- The save status will be shown at the bottom of the screen.
+- Auto-saves every 10 seconds while typing.
+- Create multiple notepads with the + button.
+- Download notepads as .txt files.
 - If PIN protection is enabled, you'll need to enter the PIN to access the app.
 
 ## Technical Details
