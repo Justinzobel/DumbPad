@@ -23,6 +23,116 @@ document.addEventListener('DOMContentLoaded', () => {
     let baseUrl = '';
     let ws = null;
     let isReceivingUpdate = false;
+    
+    // Collaborative editing state
+    const userId = Math.random().toString(36).substring(2, 15);
+    const userColor = getRandomColor();
+    const remoteCursors = new Map(); // Store other users' cursors
+    let lastCursorUpdate = 0;
+    const CURSOR_UPDATE_INTERVAL = 100; // Send cursor updates every 100ms
+
+    // Generate a random color for the user
+    function getRandomColor() {
+        const colors = [
+            '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
+            '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB',
+            '#E67E22', '#27AE60', '#F1C40F', '#E74C3C'
+        ];
+        return colors[Math.floor(Math.random() * colors.length)];
+    }
+
+    // Create and update remote cursors
+    function createRemoteCursor(userId, color) {
+        const cursor = document.createElement('div');
+        cursor.className = 'remote-cursor';
+        cursor.style.backgroundColor = color;
+        cursor.style.position = 'absolute';
+        cursor.style.width = '2px';
+        cursor.style.height = '20px';
+        cursor.style.pointerEvents = 'none';
+        cursor.style.transition = 'transform 0.1s ease';
+        
+        const label = document.createElement('div');
+        label.className = 'remote-cursor-label';
+        label.style.backgroundColor = color;
+        label.style.color = '#fff';
+        label.style.padding = '2px 6px';
+        label.style.borderRadius = '3px';
+        label.style.fontSize = '12px';
+        label.style.position = 'absolute';
+        label.style.top = '-20px';
+        label.style.left = '0';
+        label.style.whiteSpace = 'nowrap';
+        label.textContent = `User ${userId.substr(0, 4)}`;
+        
+        cursor.appendChild(label);
+        document.querySelector('.editor-container').appendChild(cursor);
+        return cursor;
+    }
+
+    // Update cursor position
+    function updateCursorPosition(userId, position) {
+        if (userId === window.userId) return; // Don't show own cursor
+        
+        let cursor = remoteCursors.get(userId);
+        if (!cursor) {
+            cursor = createRemoteCursor(userId, getRandomColor());
+            remoteCursors.set(userId, cursor);
+        }
+
+        // Get the position in the editor
+        const textArea = editor;
+        const rect = textArea.getBoundingClientRect();
+        const lineHeight = parseInt(getComputedStyle(textArea).lineHeight);
+        const { left, top } = getCaretCoordinates(textArea, position);
+
+        cursor.style.transform = `translate(${left + rect.left}px, ${top + rect.top}px)`;
+    }
+
+    // Get caret coordinates in the textarea
+    function getCaretCoordinates(element, position) {
+        const div = document.createElement('div');
+        const text = element.value.substring(0, position);
+        const styles = getComputedStyle(element);
+        
+        div.style.position = 'absolute';
+        div.style.top = '0';
+        div.style.left = '0';
+        div.style.visibility = 'hidden';
+        div.style.whiteSpace = 'pre-wrap';
+        div.style.wordWrap = 'break-word';
+        div.style.width = styles.width;
+        div.style.font = styles.font;
+        div.style.padding = styles.padding;
+        
+        div.textContent = text;
+        document.body.appendChild(div);
+        
+        const coordinates = {
+            left: div.offsetWidth,
+            top: div.offsetHeight
+        };
+        
+        document.body.removeChild(div);
+        return coordinates;
+    }
+
+    // Add CSS for remote cursors
+    const style = document.createElement('style');
+    style.textContent = `
+        .remote-cursor {
+            pointer-events: none;
+            z-index: 1000;
+        }
+        .remote-cursor-label {
+            pointer-events: none;
+            z-index: 1000;
+        }
+        .editor-container {
+            position: relative;
+        }
+    `;
+    document.head.appendChild(style);
 
     // Theme handling
     const initializeTheme = () => {
@@ -169,6 +279,27 @@ document.addEventListener('DOMContentLoaded', () => {
         debouncedSave(e.target.value);
         checkPeriodicSave(e.target.value);
     });
+
+    // Track cursor position and selection
+    editor.addEventListener('mouseup', updateLocalCursor);
+    editor.addEventListener('keyup', updateLocalCursor);
+    editor.addEventListener('click', updateLocalCursor);
+
+    function updateLocalCursor() {
+        const now = Date.now();
+        if (now - lastCursorUpdate < CURSOR_UPDATE_INTERVAL) return;
+        
+        lastCursorUpdate = now;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'cursor',
+                userId: userId,
+                color: userColor,
+                position: editor.selectionStart,
+                notepadId: currentNotepadId
+            }));
+        }
+    }
 
     notepadSelector.addEventListener('change', (e) => {
         currentNotepadId = e.target.value;
@@ -386,12 +517,35 @@ document.addEventListener('DOMContentLoaded', () => {
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                if (data.type === 'update' && data.notepadId === currentNotepadId) {
-                    isReceivingUpdate = true;
-                    editor.value = data.content;
-                    isReceivingUpdate = false;
-                } else if (data.type === 'notepad_change') {
+                
+                if (data.type === 'cursor' && data.notepadId === currentNotepadId) {
+                    // Update remote cursor position
+                    updateCursorPosition(data.userId, data.position);
+                }
+                else if (data.type === 'update' && data.notepadId === currentNotepadId) {
+                    // Handle content updates
+                    if (data.userId !== userId) {  // Don't apply our own updates
+                        const currentPos = editor.selectionStart;
+                        isReceivingUpdate = true;
+                        
+                        // Apply the update while preserving cursor position
+                        editor.value = data.content;
+                        
+                        // Restore cursor position
+                        editor.setSelectionRange(currentPos, currentPos);
+                        isReceivingUpdate = false;
+                    }
+                }
+                else if (data.type === 'notepad_change') {
                     loadNotepads();
+                }
+                else if (data.type === 'user_disconnected') {
+                    // Remove disconnected user's cursor
+                    const cursor = remoteCursors.get(data.userId);
+                    if (cursor) {
+                        cursor.remove();
+                        remoteCursors.delete(data.userId);
+                    }
                 }
             } catch (error) {
                 console.error('WebSocket message error:', error);
@@ -399,8 +553,17 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         ws.onclose = () => {
+            // Clear all remote cursors when connection is lost
+            remoteCursors.forEach(cursor => cursor.remove());
+            remoteCursors.clear();
+            
             // Try to reconnect after 5 seconds
             setTimeout(setupWebSocket, 5000);
+        };
+
+        ws.onopen = () => {
+            // Send initial cursor position
+            updateLocalCursor();
         };
     };
 

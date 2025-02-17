@@ -3,3 +3,5 @@ This is the notepad. Nothing more, nothing less.
 test
 
 And this is almost instant
+
+test

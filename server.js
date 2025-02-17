@@ -18,22 +18,39 @@ const server = app.listen(PORT, () => {
 // Set up WebSocket server
 const wss = new WebSocket.Server({ server });
 
-// Store all active connections
-const clients = new Set();
+// Store all active connections with their user IDs
+const clients = new Map();
 
 // WebSocket connection handling
 wss.on('connection', (ws) => {
-    // Add new client to the set
-    clients.add(ws);
+    let userId = null;
 
     // Handle incoming messages
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
+            
+            // Store userId when first received
+            if (data.userId && !userId) {
+                userId = data.userId;
+                clients.set(userId, ws);
+            }
+
             // Broadcast the update to all other clients
-            clients.forEach((client) => {
+            clients.forEach((client, clientId) => {
                 if (client !== ws && client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify(data));
+                    // For cursor updates, only send to clients viewing the same notepad
+                    if (data.type === 'cursor' && data.notepadId) {
+                        client.send(JSON.stringify({
+                            type: 'cursor',
+                            userId: data.userId,
+                            color: data.color,
+                            position: data.position,
+                            notepadId: data.notepadId
+                        }));
+                    } else {
+                        client.send(JSON.stringify(data));
+                    }
                 }
             });
         } catch (error) {
@@ -43,7 +60,18 @@ wss.on('connection', (ws) => {
 
     // Handle client disconnection
     ws.on('close', () => {
-        clients.delete(ws);
+        if (userId) {
+            clients.delete(userId);
+            // Notify other clients about disconnection
+            clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({
+                        type: 'user_disconnected',
+                        userId: userId
+                    }));
+                }
+            });
+        }
     });
 });
 
