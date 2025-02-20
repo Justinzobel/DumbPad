@@ -1,0 +1,16 @@
+services:
+  dumbpad:
+    image: dumbwareio/dumbpad:latest
+    container_name: dumbpad
+    restart: unless-stopped
+    ports:
+      - 3001:3000
+    volumes:
+      - ./data:/app/data
+    environment:
+      # The title shown in the web interface
+      SITE_TITLE: DumbPad
+      # Optional PIN protection (leave empty to disable)
+      DUMBPAD_PIN: 1234
+      # The base URL for the application
+      BASE_URL: http://localhost:3000 # Comment out to allow any origin
