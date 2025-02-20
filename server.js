@@ -18,9 +18,11 @@ const server = app.listen(PORT, () => {
 // Set up WebSocket server
 const wss = new WebSocket.Server({ server });
 
-// Store all active connections with their user IDs and their last known operations
+// Store all active connections with their user IDs
 const clients = new Map();
-const documentHistory = new Map(); // Store operation history for each notepad
+
+// Store operations history for each notepad
+const operationsHistory = new Map();
 
 // WebSocket connection handling
 wss.on('connection', (ws) => {
@@ -39,20 +41,22 @@ wss.on('connection', (ws) => {
 
             // Handle different message types
             if (data.type === 'operation' && data.notepadId) {
-                // Get or initialize operation history for this notepad
-                let history = documentHistory.get(data.notepadId) || [];
-                history.push(data.operation);
-                documentHistory.set(data.notepadId, history);
+                // Store operation in history
+                if (!operationsHistory.has(data.notepadId)) {
+                    operationsHistory.set(data.notepadId, []);
+                }
+                operationsHistory.get(data.notepadId).push(data.operation);
 
-                // Broadcast the operation to all other clients
+                // Keep only last 1000 operations
+                const history = operationsHistory.get(data.notepadId);
+                if (history.length > 1000) {
+                    history.splice(0, history.length - 1000);
+                }
+
+                // Broadcast to other clients
                 clients.forEach((client, clientId) => {
                     if (client !== ws && client.readyState === WebSocket.OPEN) {
-                        client.send(JSON.stringify({
-                            type: 'operation',
-                            operation: data.operation,
-                            userId: data.userId,
-                            notepadId: data.notepadId
-                        }));
+                        client.send(JSON.stringify(data));
                     }
                 });
             }
@@ -70,11 +74,20 @@ wss.on('connection', (ws) => {
                     }
                 });
             }
-            else if (data.type === 'notepad_change') {
-                // Broadcast notepad changes
+            else if (data.type === 'sync_request') {
+                // Send operation history for catch-up
+                const history = operationsHistory.get(data.notepadId) || [];
+                ws.send(JSON.stringify({
+                    type: 'sync_response',
+                    operations: history,
+                    notepadId: data.notepadId
+                }));
+            }
+            else {
+                // Broadcast other types of messages
                 clients.forEach((client, clientId) => {
                     if (client !== ws && client.readyState === WebSocket.OPEN) {
-                        client.send(JSON.stringify({ type: 'notepad_change' }));
+                        client.send(JSON.stringify(data));
                     }
                 });
             }

@@ -16,6 +16,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteCancel = document.getElementById('delete-cancel');
     const deleteConfirm = document.getElementById('delete-confirm');
     
+    // Theme handling
+    const THEME_KEY = 'dumbpad_theme';
+    let currentTheme = localStorage.getItem(THEME_KEY) || 'light';
+    
+    // Apply initial theme
+    document.body.classList.toggle('dark-mode', currentTheme === 'dark');
+    themeToggle.innerHTML = currentTheme === 'dark' ? '<span class="sun">☀</span>' : '<span class="moon">☽</span>';
+    
+    // Theme toggle handler
+    themeToggle.addEventListener('click', () => {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.body.classList.toggle('dark-mode');
+        themeToggle.innerHTML = currentTheme === 'dark' ? '<span class="sun">☀</span>' : '<span class="moon">☽</span>';
+        localStorage.setItem(THEME_KEY, currentTheme);
+    });
+
     let saveTimeout;
     let lastSaveTime = Date.now();
     const SAVE_INTERVAL = 2000;
@@ -23,16 +39,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let baseUrl = '';
     let ws = null;
     let isReceivingUpdate = false;
-    let revision = 0;
+    let version = 0;  // Document version for OT
+    let pendingOperations = [];  // Queue of pending operations
     
     // Collaborative editing state
     const userId = Math.random().toString(36).substring(2, 15);
-    window.userId = userId; // Make userId globally accessible
     const userColor = getRandomColor();
-    const remoteCursors = new Map();
+    const remoteCursors = new Map(); // Store other users' cursors
     let lastCursorUpdate = 0;
-    const CURSOR_UPDATE_INTERVAL = 100;
-    let localCursorPosition = 0;
+    const CURSOR_UPDATE_INTERVAL = 50; // More frequent cursor updates
 
     // Operation Types
     const OperationType = {
@@ -41,67 +56,48 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Create an operation object
-    function createOperation(type, position, text) {
+    function createOperation(type, position, text = '') {
         return {
             type,
             position,
             text,
             userId,
-            revision: revision++,
-            cursorPosition: editor.selectionStart
+            version: version++,
+            timestamp: Date.now()
         };
-    }
-
-    // Transform operation against another operation
-    function transformOperation(operation, against) {
-        if (!against || operation.revision <= against.revision) {
-            return operation;
-        }
-
-        const newOp = { ...operation };
-
-        if (against.type === OperationType.INSERT) {
-            // Adjust position if operation is after the insertion point
-            if (operation.position > against.position) {
-                newOp.position += against.text.length;
-            }
-            // Adjust cursor position if it's after the insertion point
-            if (operation.cursorPosition > against.position) {
-                newOp.cursorPosition += against.text.length;
-            }
-        } else if (against.type === OperationType.DELETE) {
-            // Adjust position if operation is after the deletion point
-            if (operation.position > against.position) {
-                newOp.position -= Math.min(
-                    against.text.length,
-                    operation.position - against.position
-                );
-            }
-            // Adjust cursor position if it's after the deletion point
-            if (operation.cursorPosition > against.position) {
-                newOp.cursorPosition -= Math.min(
-                    against.text.length,
-                    operation.cursorPosition - against.position
-                );
-            }
-        }
-
-        return newOp;
     }
 
     // Apply an operation to the text
     function applyOperation(operation, text) {
         switch (operation.type) {
             case OperationType.INSERT:
-                return text.slice(0, operation.position) + 
-                       operation.text + 
-                       text.slice(operation.position);
+                return text.slice(0, operation.position) + operation.text + text.slice(operation.position);
             case OperationType.DELETE:
-                return text.slice(0, operation.position) + 
-                       text.slice(operation.position + operation.text.length);
+                return text.slice(0, operation.position) + text.slice(operation.position + operation.text.length);
             default:
                 return text;
         }
+    }
+
+    // Transform operation against another operation
+    function transformOperation(operation, against) {
+        if (operation.timestamp < against.timestamp) {
+            return operation;
+        }
+
+        let newOperation = { ...operation };
+
+        if (against.type === OperationType.INSERT) {
+            if (operation.position > against.position) {
+                newOperation.position += against.text.length;
+            }
+        } else if (against.type === OperationType.DELETE) {
+            if (operation.position > against.position) {
+                newOperation.position -= against.text.length;
+            }
+        }
+
+        return newOperation;
     }
 
     // Generate a random color for the user
@@ -143,88 +139,174 @@ document.addEventListener('DOMContentLoaded', () => {
         return cursor;
     }
 
-    // Update cursor position
-    function updateCursorPosition(userId, position, color) {
-        if (userId === window.userId) return; // Don't show own cursor
+    // Event Listeners
+    editor.addEventListener('input', (e) => {
+        const target = e.target;
+        const changeStart = target.selectionStart;
+        const changeEnd = target.selectionEnd;
+        
+        // Determine if it's an insertion or deletion
+        if (e.inputType.includes('delete')) {
+            const operation = createOperation(OperationType.DELETE, changeStart, e.target.value.substring(changeStart, changeEnd));
+            sendOperation(operation);
+        } else {
+            const insertedText = e.target.value.substring(changeStart - 1, changeStart);
+            const operation = createOperation(OperationType.INSERT, changeStart - 1, insertedText);
+            sendOperation(operation);
+        }
+
+        debouncedSave(e.target.value);
+        updateLocalCursor();
+    });
+
+    // Send operation to server
+    function sendOperation(operation) {
+        if (ws && ws.readyState === WebSocket.OPEN && !isReceivingUpdate) {
+            ws.send(JSON.stringify({
+                type: 'operation',
+                operation,
+                notepadId: currentNotepadId,
+                userId
+            }));
+        }
+    }
+
+    // Track cursor position and selection
+    editor.addEventListener('mouseup', updateLocalCursor);
+    editor.addEventListener('keyup', updateLocalCursor);
+    editor.addEventListener('click', updateLocalCursor);
+    editor.addEventListener('scroll', updateCursorPositions); // Update cursors on scroll
+
+    function updateLocalCursor() {
+        const now = Date.now();
+        if (now - lastCursorUpdate < CURSOR_UPDATE_INTERVAL) return;
+        
+        lastCursorUpdate = now;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'cursor',
+                userId: userId,
+                color: userColor,
+                position: editor.selectionStart,
+                notepadId: currentNotepadId
+            }));
+        }
+    }
+
+    function updateCursorPositions() {
+        remoteCursors.forEach((cursor, userId) => {
+            const position = parseInt(cursor.dataset.position);
+            if (!isNaN(position)) {
+                updateCursorPosition(userId, position);
+            }
+        });
+    }
+
+    // Update cursor position with improved positioning
+    function updateCursorPosition(userId, position) {
+        if (userId === window.userId) return;
         
         let cursor = remoteCursors.get(userId);
         if (!cursor) {
-            cursor = createRemoteCursor(userId, color);
+            cursor = createRemoteCursor(userId, getRandomColor());
             remoteCursors.set(userId, cursor);
         }
 
-        // Get the position in the editor
+        cursor.dataset.position = position;
+
         const textArea = editor;
-        const rect = textArea.getBoundingClientRect();
-        const lineHeight = parseInt(getComputedStyle(textArea).lineHeight);
-        const { left, top } = getCaretCoordinates(textArea, position);
-
-        cursor.style.transform = `translate(${left + rect.left}px, ${top + rect.top}px)`;
-    }
-
-    // Get caret coordinates in the textarea
-    function getCaretCoordinates(element, position) {
+        const text = textArea.value.substring(0, position);
+        const lines = text.split('\n');
+        const currentLine = lines.length;
+        const currentLineStart = text.lastIndexOf('\n') + 1;
+        const currentLineText = text.slice(currentLineStart);
+        
+        // Create a hidden div to measure text
         const div = document.createElement('div');
-        const text = element.value.substring(0, position);
-        const styles = getComputedStyle(element);
-        
         div.style.position = 'absolute';
-        div.style.top = '0';
-        div.style.left = '0';
         div.style.visibility = 'hidden';
-        div.style.whiteSpace = 'pre-wrap';
-        div.style.wordWrap = 'break-word';
-        div.style.width = styles.width;
-        div.style.font = styles.font;
-        div.style.padding = styles.padding;
-        
-        div.textContent = text;
+        div.style.whiteSpace = 'pre';
+        div.style.font = getComputedStyle(textArea).font;
+        div.textContent = currentLineText;
         document.body.appendChild(div);
         
-        const coordinates = {
-            left: div.offsetWidth,
-            top: div.offsetHeight
-        };
+        const rect = textArea.getBoundingClientRect();
+        const lineHeight = parseInt(getComputedStyle(textArea).lineHeight);
+        const scrollTop = textArea.scrollTop;
+        
+        const left = div.offsetWidth;
+        const top = (currentLine - 1) * lineHeight - scrollTop;
         
         document.body.removeChild(div);
-        return coordinates;
+
+        cursor.style.transform = `translate(${left + rect.left + textArea.scrollLeft}px, ${top + rect.top}px)`;
+        cursor.style.height = `${lineHeight}px`;
     }
 
-    // Add CSS for remote cursors
-    const style = document.createElement('style');
-    style.textContent = `
-        .remote-cursor {
-            pointer-events: none;
-            z-index: 1000;
-        }
-        .remote-cursor-label {
-            pointer-events: none;
-            z-index: 1000;
-        }
-        .editor-container {
-            position: relative;
-        }
-    `;
-    document.head.appendChild(style);
+    // WebSocket message handling
+    const setupWebSocket = () => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}`;
+        ws = new WebSocket(wsUrl);
 
-    // Theme handling
-    const initializeTheme = () => {
-        if (localStorage.getItem('theme') === 'dark' || 
-            (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.body.classList.remove('light-mode');
-            document.body.classList.add('dark-mode');
-        }
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'cursor' && data.notepadId === currentNotepadId) {
+                    updateCursorPosition(data.userId, data.position);
+                }
+                else if (data.type === 'operation' && data.notepadId === currentNotepadId) {
+                    if (data.userId !== userId) {
+                        isReceivingUpdate = true;
+                        
+                        // Transform and apply the operation
+                        let operation = data.operation;
+                        for (const pending of pendingOperations) {
+                            operation = transformOperation(operation, pending);
+                        }
+                        
+                        const currentPos = editor.selectionStart;
+                        editor.value = applyOperation(operation, editor.value);
+                        
+                        // Adjust cursor position if needed
+                        if (operation.type === OperationType.INSERT && currentPos > operation.position) {
+                            editor.setSelectionRange(currentPos + operation.text.length, currentPos + operation.text.length);
+                        } else if (operation.type === OperationType.DELETE && currentPos > operation.position) {
+                            editor.setSelectionRange(currentPos - operation.text.length, currentPos - operation.text.length);
+                        } else {
+                            editor.setSelectionRange(currentPos, currentPos);
+                        }
+                        
+                        isReceivingUpdate = false;
+                        updateLocalCursor();
+                    }
+                }
+                else if (data.type === 'notepad_change') {
+                    loadNotepads();
+                }
+                else if (data.type === 'user_disconnected') {
+                    const cursor = remoteCursors.get(data.userId);
+                    if (cursor) {
+                        cursor.remove();
+                        remoteCursors.delete(data.userId);
+                    }
+                }
+            } catch (error) {
+                console.error('WebSocket message error:', error);
+            }
+        };
+
+        ws.onclose = () => {
+            remoteCursors.forEach(cursor => cursor.remove());
+            remoteCursors.clear();
+            setTimeout(setupWebSocket, 5000);
+        };
+
+        ws.onopen = () => {
+            updateLocalCursor();
+        };
     };
-
-    const toggleTheme = () => {
-        document.body.classList.toggle('dark-mode');
-        document.body.classList.toggle('light-mode');
-        localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
-    };
-
-    // Initialize theme immediately
-    initializeTheme();
-    themeToggle.addEventListener('click', toggleTheme);
 
     // Load notepads list
     const loadNotepads = async () => {
@@ -346,71 +428,6 @@ document.addEventListener('DOMContentLoaded', () => {
             saveNotes(content);
         }, 300); // Reduced from 1000 to 300 milliseconds
     };
-
-    // Event Listeners
-    editor.addEventListener('input', (e) => {
-        if (isReceivingUpdate) return;
-
-        const currentValue = e.target.value;
-        const previousValue = editor.previousValue || '';
-        editor.previousValue = currentValue;
-
-        // Determine the operation type and details
-        let operation;
-        if (currentValue.length > previousValue.length) {
-            // Insert operation
-            const position = e.target.selectionStart - 
-                           (currentValue.length - previousValue.length);
-            const insertedText = currentValue.slice(position, e.target.selectionStart);
-            operation = createOperation(OperationType.INSERT, position, insertedText);
-            localCursorPosition = e.target.selectionStart;
-        } else {
-            // Delete operation
-            const position = e.target.selectionStart;
-            const deletedText = previousValue.slice(
-                position,
-                position + (previousValue.length - currentValue.length)
-            );
-            operation = createOperation(OperationType.DELETE, position, deletedText);
-            localCursorPosition = position;
-        }
-
-        // Send operation through WebSocket
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: 'operation',
-                notepadId: currentNotepadId,
-                operation,
-                userId
-            }));
-        }
-
-        debouncedSave(currentValue);
-        checkPeriodicSave(currentValue);
-    });
-
-    // Track cursor position and selection
-    editor.addEventListener('mouseup', updateLocalCursor);
-    editor.addEventListener('keyup', updateLocalCursor);
-    editor.addEventListener('click', updateLocalCursor);
-
-    function updateLocalCursor() {
-        const now = Date.now();
-        if (now - lastCursorUpdate < CURSOR_UPDATE_INTERVAL) return;
-        
-        lastCursorUpdate = now;
-        localCursorPosition = editor.selectionStart;
-        
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: 'cursor',
-                userId: userId,
-                color: userColor,
-                position: localCursorPosition,
-                notepadId: currentNotepadId
-            }));
-        }
-    }
 
     notepadSelector.addEventListener('change', (e) => {
         currentNotepadId = e.target.value;
@@ -617,34 +634,6 @@ document.addEventListener('DOMContentLoaded', () => {
         options.credentials = 'same-origin';
         const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
         return fetch(fullUrl, options);
-    };
-
-    // WebSocket setup
-    const setupWebSocket = () => {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}`;
-        ws = new WebSocket(wsUrl);
-
-        ws.onmessage = handleWebSocketMessage;
-
-        ws.onclose = () => {
-            remoteCursors.forEach(cursor => cursor.remove());
-            remoteCursors.clear();
-            setTimeout(setupWebSocket, 5000);
-        };
-
-        ws.onopen = () => {
-            // Send initial cursor position and color
-            if (editor) {
-                ws.send(JSON.stringify({
-                    type: 'cursor',
-                    userId: userId,
-                    color: userColor,
-                    position: editor.selectionStart,
-                    notepadId: currentNotepadId
-                }));
-            }
-        };
     };
 
     // Initialize WebSocket connection

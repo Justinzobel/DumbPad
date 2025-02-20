@@ -1,7 +1,6 @@
 This is the notepad. Nothing more, nothing less.
 
 test
+This is so fast
 
-And this is almost instant
-
-test
+type over here
