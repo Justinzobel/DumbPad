@@ -330,7 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Calculate position relative to the editor's padding
         const editorPadding = parseFloat(getComputedStyle(editor).paddingLeft);
         const relativeLeft = editorPadding + left;
-        const relativeTop = (currentLine - 1) * textMetrics.lineHeight + textMetrics.lineHeight * 0.1; // Add small offset for better alignment
+        const relativeTop = currentLine * textMetrics.lineHeight - textMetrics.lineHeight * 0.1; // Adjust for proper line alignment
         
         // Store position for scroll updates
         cursor.dataset.position = position;
