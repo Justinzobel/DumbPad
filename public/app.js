@@ -237,7 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
         measurementDiv: null
     };
 
-    // Initialize text measurements
+    // Initialize text measurements with debug logging
     function initializeTextMetrics() {
         const style = getComputedStyle(editor);
         textMetrics.measurementDiv = document.createElement('div');
@@ -251,6 +251,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         document.body.appendChild(textMetrics.measurementDiv);
         updateTextMetrics();
+        
+        // Debug text metrics initialization
+        console.log('Text metrics initialized:', {
+            font: style.font,
+            lineHeight: textMetrics.lineHeight,
+            charWidth: textMetrics.charWidth,
+            editorStyle: {
+                font: style.font,
+                lineHeight: style.lineHeight,
+                padding: style.padding
+            }
+        });
     }
 
     // Update text measurements periodically
@@ -295,6 +307,16 @@ document.addEventListener('DOMContentLoaded', () => {
         
         updateTextMetrics();
         
+        // Debug measurements
+        console.log('Cursor position debug:', {
+            userId,
+            position,
+            currentLine,
+            currentLineText,
+            lineHeight: textMetrics.lineHeight,
+            charWidth: textMetrics.charWidth
+        });
+        
         // Measure current line
         textMetrics.measurementDiv.textContent = currentLineText;
         const left = textMetrics.measurementDiv.offsetWidth;
@@ -302,6 +324,36 @@ document.addEventListener('DOMContentLoaded', () => {
         const rect = editor.getBoundingClientRect();
         const scrollTop = editor.scrollTop;
         const top = (currentLine - 1) * textMetrics.lineHeight - scrollTop;
+        
+        // Debug positioning
+        console.log('Cursor positioning debug:', {
+            left,
+            rect: {
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height
+            },
+            scrollTop,
+            computedTop: top,
+            finalPosition: {
+                x: left + rect.left + editor.scrollLeft,
+                y: top + rect.top
+            }
+        });
+
+        // Verify container positioning
+        const container = document.querySelector('.editor-container');
+        const containerRect = container.getBoundingClientRect();
+        console.log('Container positioning debug:', {
+            containerRect: {
+                left: containerRect.left,
+                top: containerRect.top,
+                width: containerRect.width,
+                height: containerRect.height
+            },
+            containerPosition: window.getComputedStyle(container).position
+        });
         
         // Apply position with smooth transition
         cursor.style.transform = `translate(${left + rect.left + editor.scrollLeft}px, ${top + rect.top}px)`;
