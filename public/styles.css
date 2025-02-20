@@ -118,6 +118,7 @@ main {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     position: relative;
     z-index: 1;
+    background-color: var(--textarea-bg);
 }
 
 #editor {
@@ -129,11 +130,12 @@ main {
     border: none;
     outline: none;
     resize: none;
-    background-color: var(--textarea-bg);
+    background-color: transparent;
     color: var(--text-color);
     transition: background-color 0.3s, color 0.3s;
     position: relative;
     z-index: 2;
+    font-family: monospace;
 }
 
 #editor::placeholder {
@@ -503,13 +505,15 @@ main {
     pointer-events: none;
     z-index: 3;
     width: 2px;
-    height: 1.6em; /* Match line-height */
-    background-color: var(--primary-color);
+    height: 1.6em;
+    background-color: currentColor;
     will-change: transform;
     transform-origin: left top;
     transition: transform 0.1s ease;
-    opacity: 1;
+    opacity: 0.8;
     display: block;
+    top: 0;
+    left: 0;
 }
 
 .remote-cursor-label {
@@ -526,12 +530,14 @@ main {
     transform: translateY(-2px);
     opacity: 0.9;
     transition: opacity 0.2s;
-    background-color: var(--primary-color);
+    background-color: currentColor;
 }
 
-/* Hide cursor label when not hovering over cursor */
-.remote-cursor:not(:hover) .remote-cursor-label {
-    opacity: 0;
+.remote-cursor-label::after {
+    content: attr(data-user);
+    color: #fff;
+    position: relative;
+    z-index: 1;
 }
 
 /* Show cursor label on hover */

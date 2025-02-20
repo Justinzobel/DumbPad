@@ -201,12 +201,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function createRemoteCursor(userId, color) {
         const cursor = document.createElement('div');
         cursor.className = 'remote-cursor';
-        cursor.style.backgroundColor = color;
+        cursor.style.color = color;
         
         const label = document.createElement('div');
         label.className = 'remote-cursor-label';
-        label.style.backgroundColor = color;
-        label.textContent = `User ${userId.substr(0, 4)}`;
+        label.style.color = color;
+        label.setAttribute('data-user', `User ${userId.substr(0, 4)}`);
         
         cursor.appendChild(label);
         
