@@ -202,23 +202,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const cursor = document.createElement('div');
         cursor.className = 'remote-cursor';
         cursor.style.backgroundColor = color;
-        cursor.style.position = 'absolute';
-        cursor.style.width = '2px';
-        cursor.style.height = '20px';
-        cursor.style.pointerEvents = 'none';
-        cursor.style.transition = 'transform 0.1s ease';
         
         const label = document.createElement('div');
         label.className = 'remote-cursor-label';
         label.style.backgroundColor = color;
-        label.style.color = '#fff';
-        label.style.padding = '2px 6px';
-        label.style.borderRadius = '3px';
-        label.style.fontSize = '12px';
-        label.style.position = 'absolute';
-        label.style.top = '-20px';
-        label.style.left = '0';
-        label.style.whiteSpace = 'nowrap';
         label.textContent = `User ${userId.substr(0, 4)}`;
         
         cursor.appendChild(label);
@@ -246,8 +233,12 @@ document.addEventListener('DOMContentLoaded', () => {
             visibility: 'hidden',
             whiteSpace: 'pre',
             font: style.font,
-            padding: style.padding,
-            border: style.border
+            fontSize: style.fontSize,
+            lineHeight: style.lineHeight,
+            letterSpacing: style.letterSpacing,
+            padding: '0',
+            border: 'none',
+            margin: '0'
         });
         document.body.appendChild(textMetrics.measurementDiv);
         updateTextMetrics();
@@ -255,8 +246,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Debug text metrics initialization
         console.log('Text metrics initialized:', {
             font: style.font,
-            lineHeight: textMetrics.lineHeight,
-            charWidth: textMetrics.charWidth,
+            fontSize: style.fontSize,
+            lineHeight: style.lineHeight,
+            letterSpacing: style.letterSpacing,
             editorStyle: {
                 font: style.font,
                 lineHeight: style.lineHeight,
@@ -270,7 +262,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const now = Date.now();
         if (now - textMetrics.lastUpdate > 5000) { // Update every 5 seconds
             const style = getComputedStyle(editor);
-            textMetrics.lineHeight = parseInt(style.lineHeight);
+            textMetrics.lineHeight = parseFloat(style.lineHeight);
+            if (isNaN(textMetrics.lineHeight)) {
+                textMetrics.lineHeight = parseFloat(style.fontSize) * 1.2;
+            }
             textMetrics.measurementDiv.textContent = 'X';
             textMetrics.charWidth = textMetrics.measurementDiv.offsetWidth;
             textMetrics.lastUpdate = now;
@@ -288,7 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
             cursor = createRemoteCursor(userId, color);
         } else {
             cursor = userInfo.cursor;
-            // Update color if it changed
             if (color !== userInfo.color) {
                 cursor.style.backgroundColor = color;
                 cursor.querySelector('.remote-cursor-label').style.backgroundColor = color;
@@ -321,44 +315,35 @@ document.addEventListener('DOMContentLoaded', () => {
         textMetrics.measurementDiv.textContent = currentLineText;
         const left = textMetrics.measurementDiv.offsetWidth;
         
-        const rect = editor.getBoundingClientRect();
+        const editorRect = editor.getBoundingClientRect();
+        const containerRect = document.querySelector('.editor-container').getBoundingClientRect();
         const scrollTop = editor.scrollTop;
-        const top = (currentLine - 1) * textMetrics.lineHeight - scrollTop;
+        
+        // Calculate position relative to the container
+        const relativeLeft = left + (editorRect.left - containerRect.left) + editor.scrollLeft;
+        const relativeTop = (currentLine - 1) * textMetrics.lineHeight - scrollTop;
         
         // Debug positioning
         console.log('Cursor positioning debug:', {
-            left,
-            rect: {
-                left: rect.left,
-                top: rect.top,
-                width: rect.width,
-                height: rect.height
+            measurements: {
+                left,
+                lineHeight: textMetrics.lineHeight,
+                scrollTop,
+                scrollLeft: editor.scrollLeft
             },
-            scrollTop,
-            computedTop: top,
-            finalPosition: {
-                x: left + rect.left + editor.scrollLeft,
-                y: top + rect.top
+            rects: {
+                editor: editorRect,
+                container: containerRect
+            },
+            computed: {
+                relativeLeft,
+                relativeTop
             }
-        });
-
-        // Verify container positioning
-        const container = document.querySelector('.editor-container');
-        const containerRect = container.getBoundingClientRect();
-        console.log('Container positioning debug:', {
-            containerRect: {
-                left: containerRect.left,
-                top: containerRect.top,
-                width: containerRect.width,
-                height: containerRect.height
-            },
-            containerPosition: window.getComputedStyle(container).position
         });
         
         // Apply position with smooth transition
-        cursor.style.transform = `translate(${left + rect.left + editor.scrollLeft}px, ${top + rect.top}px)`;
+        cursor.style.transform = `translate(${relativeLeft}px, ${relativeTop}px)`;
         cursor.style.height = `${textMetrics.lineHeight}px`;
-        cursor.style.transition = 'transform 0.1s ease';
     }
 
     // Track cursor position and selection with debounce
