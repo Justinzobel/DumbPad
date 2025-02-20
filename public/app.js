@@ -294,8 +294,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             cursor = userInfo.cursor;
             if (color !== userInfo.color) {
-                cursor.style.backgroundColor = color;
-                cursor.querySelector('.remote-cursor-label').style.backgroundColor = color;
+                cursor.style.color = color;
+                cursor.querySelector('.remote-cursor-label').style.color = color;
                 userInfo.color = color;
             }
         }
@@ -330,7 +330,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // Calculate position relative to the editor's padding
         const editorPadding = parseFloat(getComputedStyle(editor).paddingLeft);
         const relativeLeft = editorPadding + left;
-        const relativeTop = (currentLine - 1) * textMetrics.lineHeight;
+        const relativeTop = (currentLine - 1) * textMetrics.lineHeight + textMetrics.lineHeight * 0.1; // Add small offset for better alignment
+        
+        // Store position for scroll updates
+        cursor.dataset.position = position;
         
         // Debug positioning
         console.log('Cursor positioning debug:', {
@@ -352,7 +355,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Apply position with smooth transition
         cursor.style.transform = `translate3d(${relativeLeft}px, ${relativeTop - scrollTop}px, 0)`;
-        cursor.style.height = `${textMetrics.lineHeight}px`;
+        cursor.style.height = `${textMetrics.lineHeight * 0.9}px`; // Slightly shorter than line height
         cursor.style.display = 'block'; // Ensure cursor is visible
     }
 
