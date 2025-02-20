@@ -516,6 +516,25 @@ main {
     left: 0;
 }
 
+/* Remote selection styling */
+.remote-selection {
+    position: absolute;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0.2;
+    background-color: currentColor;
+}
+
+.remote-selection-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+
 .remote-cursor-label {
     position: absolute;
     top: -1.5em;

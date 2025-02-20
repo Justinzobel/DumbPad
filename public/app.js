@@ -216,13 +216,100 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Editor container not found');
             return null;
         }
+
+        // Create selection container if it doesn't exist
+        let selectionContainer = container.querySelector('.remote-selection-container');
+        if (!selectionContainer) {
+            selectionContainer = document.createElement('div');
+            selectionContainer.className = 'remote-selection-container';
+            container.appendChild(selectionContainer);
+        }
         
         container.appendChild(cursor);
         console.log('Created remote cursor for user:', userId, 'color:', color);
         
         // Store user information
-        remoteUsers.set(userId, { color, cursor });
+        remoteUsers.set(userId, { color, cursor, selections: [] });
         return cursor;
+    }
+
+    // Update remote user's selection
+    function updateRemoteSelection(userId, start, end, color) {
+        if (start === end) {
+            clearRemoteSelections(userId);
+            return;
+        }
+
+        const userInfo = remoteUsers.get(userId);
+        if (!userInfo) return;
+
+        // Clear previous selections
+        clearRemoteSelections(userId);
+
+        const container = document.querySelector('.remote-selection-container');
+        if (!container) return;
+
+        const text = editor.value;
+        const selectionRects = calculateSelectionRects(text, start, end);
+        
+        userInfo.selections = selectionRects.map(rect => {
+            const selection = document.createElement('div');
+            selection.className = 'remote-selection';
+            selection.style.color = color;
+            selection.style.transform = `translate3d(${rect.left}px, ${rect.top - editor.scrollTop}px, 0)`;
+            selection.style.width = `${rect.width}px`;
+            selection.style.height = `${rect.height}px`;
+            container.appendChild(selection);
+            return selection;
+        });
+    }
+
+    // Clear selections for a user
+    function clearRemoteSelections(userId) {
+        const userInfo = remoteUsers.get(userId);
+        if (!userInfo) return;
+
+        userInfo.selections.forEach(selection => selection.remove());
+        userInfo.selections = [];
+    }
+
+    // Calculate selection rectangle positions
+    function calculateSelectionRects(text, start, end) {
+        const rects = [];
+        const lines = text.slice(0, end).split('\n');
+        const startLine = text.slice(0, start).split('\n').length - 1;
+        const endLine = lines.length - 1;
+        
+        updateTextMetrics();
+        const lineHeight = textMetrics.lineHeight;
+        const editorPadding = parseFloat(getComputedStyle(editor).paddingLeft);
+
+        for (let lineNum = startLine; lineNum <= endLine; lineNum++) {
+            const lineStart = text.split('\n').slice(0, lineNum).join('\n').length + (lineNum > 0 ? 1 : 0);
+            const lineText = lines[lineNum];
+            const lineEnd = lineStart + lineText.length;
+
+            let selectionStart = Math.max(start - lineStart, 0);
+            let selectionEnd = lineNum === endLine ? end - lineStart : lineText.length;
+
+            if (selectionStart < selectionEnd) {
+                // Measure text widths
+                textMetrics.measurementDiv.textContent = lineText.substring(0, selectionStart);
+                const startX = textMetrics.measurementDiv.offsetWidth;
+                
+                textMetrics.measurementDiv.textContent = lineText.substring(selectionStart, selectionEnd);
+                const width = textMetrics.measurementDiv.offsetWidth;
+
+                rects.push({
+                    top: lineNum * lineHeight,
+                    left: editorPadding + startX,
+                    width: width,
+                    height: lineHeight
+                });
+            }
+        }
+
+        return rects;
     }
 
     // Cache for text measurements
@@ -282,7 +369,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Update cursor position with improved measurements
-    function updateCursorPosition(userId, position, color) {
+    function updateCursorPosition(userId, position, color, selectionEnd) {
         if (userId === window.userId) return;
         
         let userInfo = remoteUsers.get(userId);
@@ -298,6 +385,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 cursor.querySelector('.remote-cursor-label').style.color = color;
                 userInfo.color = color;
             }
+        }
+
+        // Update selection if provided
+        if (typeof selectionEnd !== 'undefined') {
+            updateRemoteSelection(userId, position, selectionEnd, color);
         }
 
         // Get text up to cursor position
@@ -370,12 +462,14 @@ document.addEventListener('DOMContentLoaded', () => {
             lastCursorUpdate = now;
             if (ws && ws.readyState === WebSocket.OPEN) {
                 const position = editor.selectionStart;
-                console.log('Sending cursor update, position:', position);
+                const selectionEnd = editor.selectionEnd;
+                console.log('Sending cursor update, position:', position, 'selection end:', selectionEnd);
                 ws.send(JSON.stringify({
                     type: 'cursor',
                     userId: userId,
                     color: userColor,
                     position: position,
+                    selectionEnd: selectionEnd,
                     notepadId: currentNotepadId
                 }));
             }
@@ -390,11 +484,12 @@ document.addEventListener('DOMContentLoaded', () => {
     editor.addEventListener('keyup', updateLocalCursor);
     editor.addEventListener('click', updateLocalCursor);
     editor.addEventListener('scroll', () => {
-        // Update all remote cursors on scroll
+        // Update all remote cursors and selections on scroll
         remoteUsers.forEach((userInfo, userId) => {
             const position = parseInt(userInfo.cursor.dataset.position);
+            const selectionEnd = parseInt(userInfo.cursor.dataset.selectionEnd);
             if (!isNaN(position)) {
-                updateCursorPosition(userId, position, userInfo.color);
+                updateCursorPosition(userId, position, userInfo.color, selectionEnd);
             }
         });
     });
@@ -515,7 +610,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (data.type === 'cursor' && data.notepadId === currentNotepadId) {
                     console.log('Updating cursor for user:', data.userId, 'at position:', data.position);
-                    updateCursorPosition(data.userId, data.position, data.color);
+                    updateCursorPosition(data.userId, data.position, data.color, data.selectionEnd);
                 }
                 else if (data.type === 'ack') {
                     console.log('Operation acknowledged:', data.operationId);
