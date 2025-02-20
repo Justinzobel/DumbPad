@@ -44,6 +44,45 @@ document.addEventListener('DOMContentLoaded', () => {
     let baseUrl = '';
     let previousEditorValue = editor.value;
 
+    // Add credentials to all API requests
+    const fetchWithPin = async (url, options = {}) => {
+        options.credentials = 'same-origin';
+        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+        return fetch(fullUrl, options);
+    };
+
+    // Load notepads list
+    const loadNotepads = async () => {
+        try {
+            const response = await fetchWithPin('/api/notepads');
+            const data = await response.json();
+
+            currentNotepadId = data['note_history'];
+            if (collaborationManager) {
+                collaborationManager.currentNotepadId = currentNotepadId;
+            }
+            
+            notepadSelector.innerHTML = data.notepads_list.notepads
+                .map(pad => `<option value="${pad.id}"${pad.id === currentNotepadId?'selected':''}>${pad.name}</option>`)
+                .join('');
+        } catch (err) {
+            console.error('Error loading notepads:', err);
+            return [];
+        }
+    };
+
+    // Load notes
+    const loadNotes = async (notepadId) => {
+        try {
+            const response = await fetchWithPin(`/api/notes/${notepadId}`);
+            const data = await response.json();
+            editor.value = data.content;
+            previousEditorValue = data.content;
+        } catch (err) {
+            console.error('Error loading notes:', err);
+        }
+    };
+
     // Initialize managers
     const operationsManager = new OperationsManager();
     operationsManager.DEBUG = DEBUG;
@@ -56,7 +95,10 @@ document.addEventListener('DOMContentLoaded', () => {
     window.userId = userId; // Store userId globally for debugging
     const userColor = getRandomColor(userId);
 
-    const collaborationManager = new CollaborationManager({
+    let collaborationManager = null;
+    
+    // Initialize the collaboration manager after other functions are defined
+    collaborationManager = new CollaborationManager({
         userId,
         userColor,
         currentNotepadId,
@@ -194,24 +236,6 @@ document.addEventListener('DOMContentLoaded', () => {
         collaborationManager.updateLocalCursor();
     });
 
-    // Load notepads list
-    const loadNotepads = async () => {
-        try {
-            const response = await fetchWithPin('/api/notepads');
-            const data = await response.json();
-
-            currentNotepadId = data['note_history'];
-            collaborationManager.currentNotepadId = currentNotepadId;
-            
-            notepadSelector.innerHTML = data.notepads_list.notepads
-                .map(pad => `<option value="${pad.id}"${pad.id === currentNotepadId?'selected':''}>${pad.name}</option>`)
-                .join('');
-        } catch (err) {
-            console.error('Error loading notepads:', err);
-            return [];
-        }
-    };
-
     // Create new notepad
     const createNotepad = async () => {
         try {
@@ -248,18 +272,6 @@ document.addEventListener('DOMContentLoaded', () => {
             notepadSelector.value = currentNotepadId;
         } catch (err) {
             console.error('Error renaming notepad:', err);
-        }
-    };
-
-    // Load notes
-    const loadNotes = async (notepadId) => {
-        try {
-            const response = await fetchWithPin(`/api/notes/${notepadId}`);
-            const data = await response.json();
-            editor.value = data.content;
-            previousEditorValue = data.content;
-        } catch (err) {
-            console.error('Error loading notes:', err);
         }
     };
 
@@ -499,13 +511,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             })
             .catch(err => console.error('Error loading site configuration:', err));
-    };
-
-    // Add credentials to all API requests
-    const fetchWithPin = async (url, options = {}) => {
-        options.credentials = 'same-origin';
-        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
-        return fetch(fullUrl, options);
     };
 
     // Initialize WebSocket connection
