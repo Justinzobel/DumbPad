@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Collaborative editing state
     const userId = Math.random().toString(36).substring(2, 15);
+    window.userId = userId; // Store userId globally for debugging
     const userColor = getRandomColor();
     const remoteUsers = new Map(); // Store other users' colors and cursors
     let lastCursorUpdate = 0;
@@ -208,7 +209,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Create and update remote cursors
-    function createRemoteCursor(userId, color) {
+    function createRemoteCursor(remoteUserId, color) {
+        // Double check we never create our own cursor
+        if (remoteUserId === userId) {
+            console.warn('Attempted to create cursor for our own userId:', remoteUserId);
+            return null;
+        }
+        
         const cursor = document.createElement('div');
         cursor.className = 'remote-cursor';
         cursor.style.color = color;
@@ -221,10 +228,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         container.appendChild(cursor);
-        console.log('Created remote cursor for user:', userId, 'color:', color);
+        console.log('Created remote cursor for user:', remoteUserId, 'color:', color);
         
         // Store user information
-        remoteUsers.set(userId, { color, cursor });
+        remoteUsers.set(remoteUserId, { color, cursor });
         return cursor;
     }
 
@@ -519,11 +526,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log('Received WebSocket message:', data);
                 
                 if (data.type === 'cursor' && data.notepadId === currentNotepadId) {
+                    // Enhanced logging for cursor updates
+                    console.log('Cursor update debug:', {
+                        receivedUserId: data.userId,
+                        ourUserId: userId,
+                        receivedType: typeof data.userId,
+                        ourType: typeof userId,
+                        isOurs: data.userId === userId
+                    });
+                    
                     // Ignore cursor updates from our own user ID
-                    if (data.userId !== userId) {
-                        console.log('Updating cursor for user:', data.userId, 'at position:', data.position);
-                        updateCursorPosition(data.userId, data.position, data.color);
+                    if (data.userId === userId) {
+                        console.log('Ignoring our own cursor update');
+                        // Clean up our own cursor if it exists
+                        if (remoteUsers.has(userId)) {
+                            console.warn('Found our own cursor in remoteUsers, cleaning up');
+                            const userInfo = remoteUsers.get(userId);
+                            if (userInfo.cursor) {
+                                userInfo.cursor.remove();
+                            }
+                            remoteUsers.delete(userId);
+                        }
+                        return;
                     }
+                    
+                    console.log('Updating cursor for user:', data.userId, 'at position:', data.position);
+                    updateCursorPosition(data.userId, data.position, data.color);
                 }
                 else if (data.type === 'ack') {
                     console.log('Operation acknowledged:', data.operationId);
