@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         themeToggle.innerHTML = currentTheme === 'dark' ? '<span class="sun">☀</span>' : '<span class="moon">☽</span>';
         localStorage.setItem(THEME_KEY, currentTheme);
     });
-
+    
     let saveTimeout;
     let lastSaveTime = Date.now();
     const SAVE_INTERVAL = 2000;
@@ -203,13 +203,6 @@ document.addEventListener('DOMContentLoaded', () => {
         cursor.className = 'remote-cursor';
         cursor.style.color = color;
         
-        const label = document.createElement('div');
-        label.className = 'remote-cursor-label';
-        label.style.color = color;
-        label.setAttribute('data-user', `User ${userId.substr(0, 4)}`);
-        
-        cursor.appendChild(label);
-        
         // Ensure the editor container exists
         const container = document.querySelector('.editor-container');
         if (!container) {
@@ -295,7 +288,6 @@ document.addEventListener('DOMContentLoaded', () => {
             cursor = userInfo.cursor;
             if (color !== userInfo.color) {
                 cursor.style.color = color;
-                cursor.querySelector('.remote-cursor-label').style.color = color;
                 userInfo.color = color;
             }
         }
