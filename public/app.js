@@ -647,6 +647,49 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     };
 
+    // Add handleWebSocketMessage function before setupWebSocket
+    const handleWebSocketMessage = (event) => {
+        const message = JSON.parse(event.data);
+
+        switch (message.type) {
+            case 'operation':
+                if (message.notepadId === currentNotepadId && message.userId !== userId) {
+                    isReceivingUpdate = true;
+                    const operation = transformOperation(message.operation, {
+                        revision: revision - 1
+                    });
+                    editor.value = applyOperation(operation, editor.value);
+                    editor.previousValue = editor.value;
+                    isReceivingUpdate = false;
+                }
+                break;
+
+            case 'cursor':
+                if (message.notepadId === currentNotepadId && message.userId !== userId) {
+                    updateCursorPosition(message.userId, message.position, message.color);
+                }
+                break;
+
+            case 'notepad_change':
+                loadNotepads().then(() => {
+                    if (notepadSelector.value !== currentNotepadId) {
+                        currentNotepadId = notepadSelector.value;
+                        loadNotes(currentNotepadId);
+                    }
+                });
+                break;
+
+            case 'update':
+                if (message.notepadId === currentNotepadId && message.userId !== userId) {
+                    isReceivingUpdate = true;
+                    editor.value = message.content;
+                    editor.previousValue = editor.value;
+                    isReceivingUpdate = false;
+                }
+                break;
+        }
+    };
+
     // Initialize WebSocket connection
     setupWebSocket();
 
