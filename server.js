@@ -22,7 +22,7 @@ app.set('trust proxy', 1);
 
 // CORS configuration
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production' ? [BASE_URL, 'https://pad.000169.xyz'] : true,
+    origin: process.env.BASE_URL ? [process.env.BASE_URL] : true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
