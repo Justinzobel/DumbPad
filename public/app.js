@@ -519,8 +519,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log('Received WebSocket message:', data);
                 
                 if (data.type === 'cursor' && data.notepadId === currentNotepadId) {
-                    console.log('Updating cursor for user:', data.userId, 'at position:', data.position);
-                    updateCursorPosition(data.userId, data.position, data.color);
+                    // Ignore cursor updates from our own user ID
+                    if (data.userId !== userId) {
+                        console.log('Updating cursor for user:', data.userId, 'at position:', data.position);
+                        updateCursorPosition(data.userId, data.position, data.color);
+                    }
                 }
                 else if (data.type === 'ack') {
                     console.log('Operation acknowledged:', data.operationId);
