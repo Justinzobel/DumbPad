@@ -349,6 +349,86 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Handle text input events
+    editor.addEventListener('input', (e) => {
+        console.log('Input event:', e.inputType, 'at position:', e.target.selectionStart);
+        
+        if (isReceivingUpdate) {
+            console.log('Ignoring input event during remote update');
+            return;
+        }
+
+        const target = e.target;
+        const changeStart = target.selectionStart;
+        const changeEnd = target.selectionEnd;
+        
+        // Handle different types of input
+        if (e.inputType.includes('delete')) {
+            // For deletions, we need to capture the deleted text from the previous state
+            const operation = createOperation(
+                OperationType.DELETE,
+                changeStart,
+                e.target.value.substring(changeStart, changeEnd)
+            );
+            console.log('Created DELETE operation:', operation);
+            sendOperation(operation);
+        } else {
+            // For insertions, we need to determine what was actually inserted
+            let insertedText;
+            
+            if (e.inputType === 'insertFromPaste') {
+                // Handle pasted text
+                insertedText = e.target.value.substring(changeStart - e.data.length, changeStart);
+            } else if (e.inputType === 'insertLineBreak') {
+                // Handle line breaks
+                insertedText = '\n';
+            } else {
+                // Handle normal typing and other insertions
+                insertedText = e.data || e.target.value.substring(changeStart - 1, changeStart);
+            }
+            
+            const operation = createOperation(
+                OperationType.INSERT,
+                changeStart - insertedText.length,
+                insertedText
+            );
+            console.log('Created INSERT operation:', operation);
+            sendOperation(operation);
+        }
+
+        debouncedSave(target.value);
+        updateLocalCursor();
+    });
+
+    // Store previous editor value for detecting deletions
+    let previousEditorValue = editor.value;
+    
+    // Handle composition events (for IME input)
+    editor.addEventListener('compositionstart', () => {
+        isReceivingUpdate = true;
+    });
+    
+    editor.addEventListener('compositionend', (e) => {
+        isReceivingUpdate = false;
+        // Create a single operation for the entire composition
+        const target = e.target;
+        const endPosition = target.selectionStart;
+        const composedText = e.data;
+        
+        if (composedText) {
+            const operation = createOperation(
+                OperationType.INSERT,
+                endPosition - composedText.length,
+                composedText
+            );
+            console.log('Created composition operation:', operation);
+            sendOperation(operation);
+        }
+        
+        debouncedSave(target.value);
+        updateLocalCursor();
+    });
+
     // WebSocket message handling
     const setupWebSocket = () => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
