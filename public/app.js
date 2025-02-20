@@ -196,15 +196,23 @@ document.addEventListener('DOMContentLoaded', () => {
             '#E67E22', '#27AE60', '#F1C40F', '#E74C3C'
         ];
         
-        // Create a hash of the user ID
-        let hash = 0;
+        // Use a more sophisticated hash function (FNV-1a)
+        let hash = 2166136261; // FNV offset basis
         for (let i = 0; i < userId.length; i++) {
-            hash = ((hash << 5) - hash) + userId.charCodeAt(i);
-            hash = hash & hash; // Convert to 32-bit integer
+            hash ^= userId.charCodeAt(i);
+            hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
         }
         
-        // Use the absolute value of the hash to get a consistent index
-        const index = Math.abs(hash) % colors.length;
+        // Add timestamp component to further reduce collisions
+        // but keep it deterministic for the same user
+        const timeComponent = parseInt(userId.slice(-4), 36);
+        hash = (hash ^ timeComponent) >>> 0; // Convert to unsigned 32-bit
+        
+        // Use modulo bias reduction technique
+        const MAX_INT32 = 0xFFFFFFFF;
+        const scaled = (hash / MAX_INT32) * colors.length;
+        const index = Math.floor(scaled);
+        
         return colors[index];
     }
 
