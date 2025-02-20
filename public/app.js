@@ -413,28 +413,49 @@ document.addEventListener('DOMContentLoaded', () => {
         const changeEnd = target.selectionEnd;
         
         // Handle different types of input
-        if (e.inputType.includes('delete')) {
-            // For deletions, we need to capture the deleted text from the previous state
-            const operation = createOperation(
-                OperationType.DELETE,
-                changeStart,
-                e.target.value.substring(changeStart, changeEnd)
+        if (e.inputType.startsWith('delete')) {
+            // Calculate what was deleted by comparing with previous value
+            const deletedText = previousEditorValue.substring(
+                e.inputType === 'deleteContentBackward' ? changeStart : changeStart + 1,
+                e.inputType === 'deleteContentBackward' ? changeStart + 1 : changeStart + 2
             );
-            console.log('Created DELETE operation:', operation);
-            sendOperation(operation);
+            
+            // For bulk deletions (e.g., selecting text and pressing delete/backspace)
+            if (e.inputType === 'deleteContentBackward' && previousEditorValue.length - target.value.length > 1) {
+                const selectionStart = changeStart;
+                const selectionEnd = selectionStart + (previousEditorValue.length - target.value.length);
+                const deletedContent = previousEditorValue.substring(selectionStart, selectionEnd);
+                
+                const operation = createOperation(
+                    OperationType.DELETE,
+                    selectionStart,
+                    deletedContent
+                );
+                console.log('Created bulk DELETE operation:', operation);
+                sendOperation(operation);
+            } else {
+                // Single character deletion
+                const operation = createOperation(
+                    OperationType.DELETE,
+                    e.inputType === 'deleteContentBackward' ? changeStart : changeStart,
+                    deletedText
+                );
+                console.log('Created DELETE operation:', operation);
+                sendOperation(operation);
+            }
         } else {
             // For insertions, we need to determine what was actually inserted
             let insertedText;
             
             if (e.inputType === 'insertFromPaste') {
                 // Handle pasted text
-                insertedText = e.target.value.substring(changeStart - e.data.length, changeStart);
+                insertedText = target.value.substring(changeStart - e.data.length, changeStart);
             } else if (e.inputType === 'insertLineBreak') {
                 // Handle line breaks
                 insertedText = '\n';
             } else {
                 // Handle normal typing and other insertions
-                insertedText = e.data || e.target.value.substring(changeStart - 1, changeStart);
+                insertedText = e.data || target.value.substring(changeStart - 1, changeStart);
             }
             
             const operation = createOperation(
@@ -446,6 +467,9 @@ document.addEventListener('DOMContentLoaded', () => {
             sendOperation(operation);
         }
 
+        // Update previous value for next comparison
+        previousEditorValue = target.value;
+        
         debouncedSave(target.value);
         updateLocalCursor();
     });
