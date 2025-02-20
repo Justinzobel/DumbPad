@@ -285,14 +285,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Update cursor position with improved measurements
-    function updateCursorPosition(userId, position, color) {
-        if (userId === window.userId) return;
+    function updateCursorPosition(remoteUserId, position, color) {
+        // Don't create or update cursor for our own user ID
+        if (remoteUserId === userId) {
+            return;
+        }
         
-        let userInfo = remoteUsers.get(userId);
+        let userInfo = remoteUsers.get(remoteUserId);
         let cursor;
         
         if (!userInfo) {
-            cursor = createRemoteCursor(userId, color);
+            cursor = createRemoteCursor(remoteUserId, color);
             if (!cursor) return; // Exit if cursor creation failed
         } else {
             cursor = userInfo.cursor;
@@ -313,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Debug measurements
         console.log('Cursor position debug:', {
-            userId,
+            userId: remoteUserId,
             position,
             currentLine,
             currentLineText,
