@@ -187,14 +187,24 @@ document.addEventListener('DOMContentLoaded', () => {
         return newOperation;
     }
 
-    // Generate a random color for the user
+    // Generate a deterministic color for the user based on their ID
     function getRandomColor() {
         const colors = [
             '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
             '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB',
             '#E67E22', '#27AE60', '#F1C40F', '#E74C3C'
         ];
-        return colors[Math.floor(Math.random() * colors.length)];
+        
+        // Create a hash of the user ID
+        let hash = 0;
+        for (let i = 0; i < userId.length; i++) {
+            hash = ((hash << 5) - hash) + userId.charCodeAt(i);
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        
+        // Use the absolute value of the hash to get a consistent index
+        const index = Math.abs(hash) % colors.length;
+        return colors[index];
     }
 
     // Create and update remote cursors
