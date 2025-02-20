@@ -209,7 +209,16 @@ document.addEventListener('DOMContentLoaded', () => {
         label.textContent = `User ${userId.substr(0, 4)}`;
         
         cursor.appendChild(label);
-        document.querySelector('.editor-container').appendChild(cursor);
+        
+        // Ensure the editor container exists
+        const container = document.querySelector('.editor-container');
+        if (!container) {
+            console.error('Editor container not found');
+            return null;
+        }
+        
+        container.appendChild(cursor);
+        console.log('Created remote cursor for user:', userId, 'color:', color);
         
         // Store user information
         remoteUsers.set(userId, { color, cursor });
@@ -281,6 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (!userInfo) {
             cursor = createRemoteCursor(userId, color);
+            if (!cursor) return; // Exit if cursor creation failed
         } else {
             cursor = userInfo.cursor;
             if (color !== userInfo.color) {
@@ -289,8 +299,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 userInfo.color = color;
             }
         }
-
-        cursor.dataset.position = position;
 
         // Get text up to cursor position
         const text = editor.value.substring(0, position);
@@ -319,17 +327,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const containerRect = document.querySelector('.editor-container').getBoundingClientRect();
         const scrollTop = editor.scrollTop;
         
-        // Calculate position relative to the container
-        const relativeLeft = left + (editorRect.left - containerRect.left) + editor.scrollLeft;
-        const relativeTop = (currentLine - 1) * textMetrics.lineHeight - scrollTop;
+        // Calculate position relative to the editor's padding
+        const editorPadding = parseFloat(getComputedStyle(editor).paddingLeft);
+        const relativeLeft = editorPadding + left;
+        const relativeTop = (currentLine - 1) * textMetrics.lineHeight;
         
         // Debug positioning
         console.log('Cursor positioning debug:', {
             measurements: {
                 left,
+                editorPadding,
                 lineHeight: textMetrics.lineHeight,
-                scrollTop,
-                scrollLeft: editor.scrollLeft
+                scrollTop
             },
             rects: {
                 editor: editorRect,
@@ -342,8 +351,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         // Apply position with smooth transition
-        cursor.style.transform = `translate(${relativeLeft}px, ${relativeTop}px)`;
+        cursor.style.transform = `translate3d(${relativeLeft}px, ${relativeTop - scrollTop}px, 0)`;
         cursor.style.height = `${textMetrics.lineHeight}px`;
+        cursor.style.display = 'block'; // Ensure cursor is visible
     }
 
     // Track cursor position and selection with debounce
