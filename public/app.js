@@ -39,15 +39,19 @@ document.addEventListener('DOMContentLoaded', () => {
     let baseUrl = '';
     let ws = null;
     let isReceivingUpdate = false;
-    let version = 0;  // Document version for OT
-    let pendingOperations = [];  // Queue of pending operations
     
     // Collaborative editing state
     const userId = Math.random().toString(36).substring(2, 15);
     const userColor = getRandomColor();
-    const remoteCursors = new Map(); // Store other users' cursors
+    const remoteUsers = new Map(); // Store other users' colors and cursors
     let lastCursorUpdate = 0;
     const CURSOR_UPDATE_INTERVAL = 50; // More frequent cursor updates
+    
+    // Operation management
+    let localVersion = 0;  // Local operation counter
+    let serverVersion = 0; // Last acknowledged server version
+    const pendingOperations = new Map(); // Map of operation ID to operation
+    let nextOperationId = 0;
 
     // Operation Types
     const OperationType = {
@@ -55,31 +59,75 @@ document.addEventListener('DOMContentLoaded', () => {
         DELETE: 'delete'
     };
 
-    // Create an operation object
+    // Create an operation object with unique ID
     function createOperation(type, position, text = '') {
-        return {
+        const operationId = nextOperationId++;
+        const operation = {
+            id: operationId,
             type,
             position,
             text,
             userId,
-            version: version++,
+            localVersion: localVersion++,
+            serverVersion,
             timestamp: Date.now()
         };
+        pendingOperations.set(operationId, operation);
+        return operation;
     }
 
     // Apply an operation to the text
     function applyOperation(operation, text) {
+        let result;
         switch (operation.type) {
             case OperationType.INSERT:
-                return text.slice(0, operation.position) + operation.text + text.slice(operation.position);
+                result = text.slice(0, operation.position) + operation.text + text.slice(operation.position);
+                break;
             case OperationType.DELETE:
-                return text.slice(0, operation.position) + text.slice(operation.position + operation.text.length);
+                result = text.slice(0, operation.position) + text.slice(operation.position + operation.text.length);
+                break;
             default:
-                return text;
+                result = text;
+        }
+        return result;
+    }
+
+    // Handle operation acknowledgment
+    function handleOperationAck(operationId, serverVer) {
+        if (pendingOperations.has(operationId)) {
+            console.log('Operation acknowledged:', operationId, 'server version:', serverVer);
+            const operation = pendingOperations.get(operationId);
+            operation.serverVersion = serverVer;
+            pendingOperations.delete(operationId);
+            serverVersion = Math.max(serverVersion, serverVer);
         }
     }
 
-    // Transform operation against another operation
+    // Send operation to server with retry logic
+    function sendOperation(operation) {
+        if (ws && ws.readyState === WebSocket.OPEN && !isReceivingUpdate) {
+            console.log('Sending operation:', operation);
+            ws.send(JSON.stringify({
+                type: 'operation',
+                operation,
+                notepadId: currentNotepadId,
+                userId
+            }));
+
+            // Set up retry if no acknowledgment received
+            const retryTimeout = setTimeout(() => {
+                if (pendingOperations.has(operation.id)) {
+                    console.log('Operation not acknowledged, retrying:', operation.id);
+                    sendOperation(operation);
+                }
+            }, 3000); // Retry after 3 seconds
+
+            // Clear retry timeout if operation is acknowledged
+            operation.retryTimeout = retryTimeout;
+        }
+    }
+
+    // Transform operation against another operation with improved handling
     function transformOperation(operation, against) {
         if (operation.timestamp < against.timestamp) {
             return operation;
@@ -90,10 +138,49 @@ document.addEventListener('DOMContentLoaded', () => {
         if (against.type === OperationType.INSERT) {
             if (operation.position > against.position) {
                 newOperation.position += against.text.length;
+            } else if (operation.position === against.position) {
+                // For concurrent insertions at the same position,
+                // order by user ID to ensure consistency
+                if (operation.userId > against.userId) {
+                    newOperation.position += against.text.length;
+                }
             }
         } else if (against.type === OperationType.DELETE) {
-            if (operation.position > against.position) {
-                newOperation.position -= against.text.length;
+            if (operation.type === OperationType.INSERT) {
+                // Handle insert against delete
+                if (operation.position >= against.position + against.text.length) {
+                    newOperation.position -= against.text.length;
+                } else if (operation.position > against.position) {
+                    newOperation.position = against.position;
+                }
+            } else if (operation.type === OperationType.DELETE) {
+                // Handle delete against delete
+                if (operation.position >= against.position + against.text.length) {
+                    newOperation.position -= against.text.length;
+                } else if (operation.position + operation.text.length <= against.position) {
+                    // No change needed
+                } else {
+                    // Handle overlapping deletions
+                    const overlapStart = Math.max(operation.position, against.position);
+                    const overlapEnd = Math.min(
+                        operation.position + operation.text.length,
+                        against.position + against.text.length
+                    );
+                    const overlap = overlapEnd - overlapStart;
+                    
+                    if (operation.position < against.position) {
+                        // Our deletion starts before the other deletion
+                        newOperation.text = operation.text.slice(0, against.position - operation.position);
+                    } else {
+                        // Our deletion starts within or after the other deletion
+                        newOperation.position = against.position;
+                        newOperation.text = operation.text.slice(overlap);
+                    }
+                    
+                    if (newOperation.text.length === 0) {
+                        return null; // Operation is no longer needed
+                    }
+                }
             }
         }
 
@@ -136,147 +223,200 @@ document.addEventListener('DOMContentLoaded', () => {
         
         cursor.appendChild(label);
         document.querySelector('.editor-container').appendChild(cursor);
+        
+        // Store user information
+        remoteUsers.set(userId, { color, cursor });
         return cursor;
     }
 
-    // Event Listeners
-    editor.addEventListener('input', (e) => {
-        const target = e.target;
-        const changeStart = target.selectionStart;
-        const changeEnd = target.selectionEnd;
-        
-        // Determine if it's an insertion or deletion
-        if (e.inputType.includes('delete')) {
-            const operation = createOperation(OperationType.DELETE, changeStart, e.target.value.substring(changeStart, changeEnd));
-            sendOperation(operation);
-        } else {
-            const insertedText = e.target.value.substring(changeStart - 1, changeStart);
-            const operation = createOperation(OperationType.INSERT, changeStart - 1, insertedText);
-            sendOperation(operation);
-        }
+    // Cache for text measurements
+    let textMetrics = {
+        lineHeight: 0,
+        charWidth: 0,
+        lastUpdate: 0,
+        measurementDiv: null
+    };
 
-        debouncedSave(e.target.value);
-        updateLocalCursor();
-    });
-
-    // Send operation to server
-    function sendOperation(operation) {
-        if (ws && ws.readyState === WebSocket.OPEN && !isReceivingUpdate) {
-            ws.send(JSON.stringify({
-                type: 'operation',
-                operation,
-                notepadId: currentNotepadId,
-                userId
-            }));
-        }
-    }
-
-    // Track cursor position and selection
-    editor.addEventListener('mouseup', updateLocalCursor);
-    editor.addEventListener('keyup', updateLocalCursor);
-    editor.addEventListener('click', updateLocalCursor);
-    editor.addEventListener('scroll', updateCursorPositions); // Update cursors on scroll
-
-    function updateLocalCursor() {
-        const now = Date.now();
-        if (now - lastCursorUpdate < CURSOR_UPDATE_INTERVAL) return;
-        
-        lastCursorUpdate = now;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: 'cursor',
-                userId: userId,
-                color: userColor,
-                position: editor.selectionStart,
-                notepadId: currentNotepadId
-            }));
-        }
-    }
-
-    function updateCursorPositions() {
-        remoteCursors.forEach((cursor, userId) => {
-            const position = parseInt(cursor.dataset.position);
-            if (!isNaN(position)) {
-                updateCursorPosition(userId, position);
-            }
+    // Initialize text measurements
+    function initializeTextMetrics() {
+        const style = getComputedStyle(editor);
+        textMetrics.measurementDiv = document.createElement('div');
+        Object.assign(textMetrics.measurementDiv.style, {
+            position: 'absolute',
+            visibility: 'hidden',
+            whiteSpace: 'pre',
+            font: style.font,
+            padding: style.padding,
+            border: style.border
         });
+        document.body.appendChild(textMetrics.measurementDiv);
+        updateTextMetrics();
     }
 
-    // Update cursor position with improved positioning
-    function updateCursorPosition(userId, position) {
+    // Update text measurements periodically
+    function updateTextMetrics() {
+        const now = Date.now();
+        if (now - textMetrics.lastUpdate > 5000) { // Update every 5 seconds
+            const style = getComputedStyle(editor);
+            textMetrics.lineHeight = parseInt(style.lineHeight);
+            textMetrics.measurementDiv.textContent = 'X';
+            textMetrics.charWidth = textMetrics.measurementDiv.offsetWidth;
+            textMetrics.lastUpdate = now;
+        }
+    }
+
+    // Update cursor position with improved measurements
+    function updateCursorPosition(userId, position, color) {
         if (userId === window.userId) return;
         
-        let cursor = remoteCursors.get(userId);
-        if (!cursor) {
-            cursor = createRemoteCursor(userId, getRandomColor());
-            remoteCursors.set(userId, cursor);
+        let userInfo = remoteUsers.get(userId);
+        let cursor;
+        
+        if (!userInfo) {
+            cursor = createRemoteCursor(userId, color);
+        } else {
+            cursor = userInfo.cursor;
+            // Update color if it changed
+            if (color !== userInfo.color) {
+                cursor.style.backgroundColor = color;
+                cursor.querySelector('.remote-cursor-label').style.backgroundColor = color;
+                userInfo.color = color;
+            }
         }
 
         cursor.dataset.position = position;
 
-        const textArea = editor;
-        const text = textArea.value.substring(0, position);
+        // Get text up to cursor position
+        const text = editor.value.substring(0, position);
         const lines = text.split('\n');
         const currentLine = lines.length;
         const currentLineStart = text.lastIndexOf('\n') + 1;
         const currentLineText = text.slice(currentLineStart);
         
-        // Create a hidden div to measure text
-        const div = document.createElement('div');
-        div.style.position = 'absolute';
-        div.style.visibility = 'hidden';
-        div.style.whiteSpace = 'pre';
-        div.style.font = getComputedStyle(textArea).font;
-        div.textContent = currentLineText;
-        document.body.appendChild(div);
+        updateTextMetrics();
         
-        const rect = textArea.getBoundingClientRect();
-        const lineHeight = parseInt(getComputedStyle(textArea).lineHeight);
-        const scrollTop = textArea.scrollTop;
+        // Measure current line
+        textMetrics.measurementDiv.textContent = currentLineText;
+        const left = textMetrics.measurementDiv.offsetWidth;
         
-        const left = div.offsetWidth;
-        const top = (currentLine - 1) * lineHeight - scrollTop;
+        const rect = editor.getBoundingClientRect();
+        const scrollTop = editor.scrollTop;
+        const top = (currentLine - 1) * textMetrics.lineHeight - scrollTop;
         
-        document.body.removeChild(div);
-
-        cursor.style.transform = `translate(${left + rect.left + textArea.scrollLeft}px, ${top + rect.top}px)`;
-        cursor.style.height = `${lineHeight}px`;
+        // Apply position with smooth transition
+        cursor.style.transform = `translate(${left + rect.left + editor.scrollLeft}px, ${top + rect.top}px)`;
+        cursor.style.height = `${textMetrics.lineHeight}px`;
+        cursor.style.transition = 'transform 0.1s ease';
     }
+
+    // Track cursor position and selection with debounce
+    let cursorUpdateTimeout;
+    function updateLocalCursor() {
+        clearTimeout(cursorUpdateTimeout);
+        cursorUpdateTimeout = setTimeout(() => {
+            const now = Date.now();
+            if (now - lastCursorUpdate < CURSOR_UPDATE_INTERVAL) return;
+            
+            lastCursorUpdate = now;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const position = editor.selectionStart;
+                console.log('Sending cursor update, position:', position);
+                ws.send(JSON.stringify({
+                    type: 'cursor',
+                    userId: userId,
+                    color: userColor,
+                    position: position,
+                    notepadId: currentNotepadId
+                }));
+            }
+        }, 50); // 50ms debounce
+    }
+
+    // Initialize text metrics when the page loads
+    initializeTextMetrics();
+
+    // Track cursor position and selection
+    editor.addEventListener('mouseup', updateLocalCursor);
+    editor.addEventListener('keyup', updateLocalCursor);
+    editor.addEventListener('click', updateLocalCursor);
+    editor.addEventListener('scroll', () => {
+        // Update all remote cursors on scroll
+        remoteUsers.forEach((userInfo, userId) => {
+            const position = parseInt(userInfo.cursor.dataset.position);
+            if (!isNaN(position)) {
+                updateCursorPosition(userId, position, userInfo.color);
+            }
+        });
+    });
 
     // WebSocket message handling
     const setupWebSocket = () => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}`;
+        console.log('Attempting WebSocket connection to:', wsUrl);
         ws = new WebSocket(wsUrl);
 
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+                console.log('Received WebSocket message:', data);
                 
                 if (data.type === 'cursor' && data.notepadId === currentNotepadId) {
-                    updateCursorPosition(data.userId, data.position);
+                    console.log('Updating cursor for user:', data.userId, 'at position:', data.position);
+                    updateCursorPosition(data.userId, data.position, data.color);
+                }
+                else if (data.type === 'ack') {
+                    console.log('Operation acknowledged:', data.operationId);
+                    handleOperationAck(data.operationId, data.serverVersion);
                 }
                 else if (data.type === 'operation' && data.notepadId === currentNotepadId) {
                     if (data.userId !== userId) {
+                        console.log('Applying remote operation:', data.operation);
                         isReceivingUpdate = true;
                         
-                        // Transform and apply the operation
+                        // Transform operation against pending operations
                         let operation = data.operation;
-                        for (const pending of pendingOperations) {
-                            operation = transformOperation(operation, pending);
+                        const pendingOps = Array.from(pendingOperations.values())
+                            .sort((a, b) => a.timestamp - b.timestamp);
+                        
+                        for (const pending of pendingOps) {
+                            const transformed = transformOperation(operation, pending);
+                            if (transformed) {
+                                operation = transformed;
+                            } else {
+                                console.log('Operation was nullified by transformation');
+                                isReceivingUpdate = false;
+                                return;
+                            }
                         }
                         
+                        // Save current cursor position
                         const currentPos = editor.selectionStart;
+                        const currentEnd = editor.selectionEnd;
+                        
+                        // Apply the operation
                         editor.value = applyOperation(operation, editor.value);
                         
-                        // Adjust cursor position if needed
-                        if (operation.type === OperationType.INSERT && currentPos > operation.position) {
-                            editor.setSelectionRange(currentPos + operation.text.length, currentPos + operation.text.length);
-                        } else if (operation.type === OperationType.DELETE && currentPos > operation.position) {
-                            editor.setSelectionRange(currentPos - operation.text.length, currentPos - operation.text.length);
-                        } else {
-                            editor.setSelectionRange(currentPos, currentPos);
+                        // Adjust cursor position based on operation type and position
+                        let newPos = currentPos;
+                        let newEnd = currentEnd;
+                        
+                        if (operation.type === OperationType.INSERT) {
+                            if (operation.position < currentPos) {
+                                newPos += operation.text.length;
+                                newEnd += operation.text.length;
+                            }
+                        } else if (operation.type === OperationType.DELETE) {
+                            if (operation.position < currentPos) {
+                                newPos = Math.max(operation.position, 
+                                    currentPos - operation.text.length);
+                                newEnd = Math.max(operation.position, 
+                                    currentEnd - operation.text.length);
+                            }
                         }
+                        
+                        // Restore adjusted cursor position
+                        editor.setSelectionRange(newPos, newEnd);
                         
                         isReceivingUpdate = false;
                         updateLocalCursor();
@@ -286,11 +426,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     loadNotepads();
                 }
                 else if (data.type === 'user_disconnected') {
-                    const cursor = remoteCursors.get(data.userId);
-                    if (cursor) {
-                        cursor.remove();
-                        remoteCursors.delete(data.userId);
-                    }
+                    handleUserDisconnection(data.userId);
                 }
             } catch (error) {
                 console.error('WebSocket message error:', error);
@@ -298,13 +434,19 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         ws.onclose = () => {
-            remoteCursors.forEach(cursor => cursor.remove());
-            remoteCursors.clear();
+            console.log('WebSocket connection closed, cleaning up cursors');
+            remoteUsers.forEach(userInfo => userInfo.cursor.remove());
+            remoteUsers.clear();
             setTimeout(setupWebSocket, 5000);
         };
 
         ws.onopen = () => {
+            console.log('WebSocket connection established');
             updateLocalCursor();
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
         };
     };
 
@@ -635,6 +777,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
         return fetch(fullUrl, options);
     };
+
+    // Handle user disconnection
+    function handleUserDisconnection(userId) {
+        console.log('User disconnected:', userId);
+        const userInfo = remoteUsers.get(userId);
+        if (userInfo) {
+            userInfo.cursor.remove();
+            remoteUsers.delete(userId);
+        }
+    }
 
     // Initialize WebSocket connection
     setupWebSocket();
