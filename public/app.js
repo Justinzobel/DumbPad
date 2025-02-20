@@ -415,30 +415,28 @@ document.addEventListener('DOMContentLoaded', () => {
         // Handle different types of input
         if (e.inputType.startsWith('delete')) {
             // Calculate what was deleted by comparing with previous value
-            const deletedText = previousEditorValue.substring(
-                e.inputType === 'deleteContentBackward' ? changeStart : changeStart + 1,
-                e.inputType === 'deleteContentBackward' ? changeStart + 1 : changeStart + 2
-            );
+            const lengthDiff = previousEditorValue.length - target.value.length;
             
             // For bulk deletions (e.g., selecting text and pressing delete/backspace)
-            if (e.inputType === 'deleteContentBackward' && previousEditorValue.length - target.value.length > 1) {
-                const selectionStart = changeStart;
-                const selectionEnd = selectionStart + (previousEditorValue.length - target.value.length);
-                const deletedContent = previousEditorValue.substring(selectionStart, selectionEnd);
+            // or continuous delete (holding delete key)
+            if (lengthDiff > 0) {
+                let deletedContent;
+                let deletePosition;
+                
+                if (e.inputType === 'deleteContentBackward') {
+                    // Backspace: deletion happens before cursor
+                    deletePosition = changeStart;
+                    deletedContent = previousEditorValue.substring(deletePosition, deletePosition + lengthDiff);
+                } else {
+                    // Delete key: deletion happens at cursor
+                    deletePosition = changeStart;
+                    deletedContent = previousEditorValue.substring(deletePosition, deletePosition + lengthDiff);
+                }
                 
                 const operation = createOperation(
                     OperationType.DELETE,
-                    selectionStart,
+                    deletePosition,
                     deletedContent
-                );
-                console.log('Created bulk DELETE operation:', operation);
-                sendOperation(operation);
-            } else {
-                // Single character deletion
-                const operation = createOperation(
-                    OperationType.DELETE,
-                    e.inputType === 'deleteContentBackward' ? changeStart : changeStart,
-                    deletedText
                 );
                 console.log('Created DELETE operation:', operation);
                 sendOperation(operation);
