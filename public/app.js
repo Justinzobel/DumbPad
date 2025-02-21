@@ -1,4 +1,9 @@
+import { OperationsManager, OperationType } from './operations.js';
+import { CollaborationManager } from './collaboration.js';
+import { CursorManager } from './cursor-manager.js';
+
 document.addEventListener('DOMContentLoaded', () => {
+    const DEBUG = false;
     const editor = document.getElementById('editor');
     const themeToggle = document.getElementById('theme-toggle');
     const saveStatus = document.getElementById('save-status');
@@ -16,30 +21,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteCancel = document.getElementById('delete-cancel');
     const deleteConfirm = document.getElementById('delete-confirm');
     
+    // Theme handling
+    const THEME_KEY = 'dumbpad_theme';
+    let currentTheme = localStorage.getItem(THEME_KEY) || 'light';
+    
+    // Apply initial theme
+    document.body.classList.toggle('dark-mode', currentTheme === 'dark');
+    themeToggle.innerHTML = currentTheme === 'dark' ? '<span class="sun">☀</span>' : '<span class="moon">☽</span>';
+    
+    // Theme toggle handler
+    themeToggle.addEventListener('click', () => {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.body.classList.toggle('dark-mode');
+        themeToggle.innerHTML = currentTheme === 'dark' ? '<span class="sun">☀</span>' : '<span class="moon">☽</span>';
+        localStorage.setItem(THEME_KEY, currentTheme);
+    });
+    
     let saveTimeout;
     let lastSaveTime = Date.now();
-    const SAVE_INTERVAL = 10000; // Save every 10 seconds while typing
+    const SAVE_INTERVAL = 2000;
     let currentNotepadId = 'default';
     let baseUrl = '';
+    let previousEditorValue = editor.value;
 
-    // Theme handling
-    const initializeTheme = () => {
-        if (localStorage.getItem('theme') === 'dark' || 
-            (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.body.classList.remove('light-mode');
-            document.body.classList.add('dark-mode');
-        }
+    // Add credentials to all API requests
+    const fetchWithPin = async (url, options = {}) => {
+        options.credentials = 'same-origin';
+        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+        return fetch(fullUrl, options);
     };
-
-    const toggleTheme = () => {
-        document.body.classList.toggle('dark-mode');
-        document.body.classList.toggle('light-mode');
-        localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
-    };
-
-    // Initialize theme immediately
-    initializeTheme();
-    themeToggle.addEventListener('click', toggleTheme);
 
     // Load notepads list
     const loadNotepads = async () => {
@@ -47,10 +57,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetchWithPin('/api/notepads');
             const data = await response.json();
 
-            // Read the existing cookie value
             currentNotepadId = data['note_history'];
+            if (collaborationManager) {
+                collaborationManager.currentNotepadId = currentNotepadId;
+            }
             
-            // Set the appropriate selector value based on the history
             notepadSelector.innerHTML = data.notepads_list.notepads
                 .map(pad => `<option value="${pad.id}"${pad.id === currentNotepadId?'selected':''}>${pad.name}</option>`)
                 .join('');
@@ -60,6 +71,171 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // Load notes
+    const loadNotes = async (notepadId) => {
+        try {
+            const response = await fetchWithPin(`/api/notes/${notepadId}`);
+            const data = await response.json();
+            editor.value = data.content;
+            previousEditorValue = data.content;
+        } catch (err) {
+            console.error('Error loading notes:', err);
+        }
+    };
+
+    // Initialize managers
+    const operationsManager = new OperationsManager();
+    operationsManager.DEBUG = DEBUG;
+
+    const cursorManager = new CursorManager({ editor });
+    cursorManager.DEBUG = DEBUG;
+
+    // Generate user ID and color
+    const userId = Math.random().toString(36).substring(2, 15);
+    window.userId = userId; // Store userId globally for debugging
+    const userColor = getRandomColor(userId);
+
+    let collaborationManager = null;
+    
+    // Initialize the collaboration manager after other functions are defined
+    collaborationManager = new CollaborationManager({
+        userId,
+        userColor,
+        currentNotepadId,
+        operationsManager,
+        editor,
+        onNotepadChange: loadNotepads,
+        onUserDisconnect: (disconnectedUserId) => cursorManager.handleUserDisconnection(disconnectedUserId),
+        onCursorUpdate: (remoteUserId, position, color) => cursorManager.updateCursorPosition(remoteUserId, position, color)
+    });
+    collaborationManager.DEBUG = DEBUG;
+
+    // Generate a deterministic color for the user based on their ID
+    function getRandomColor(userId) {
+        const colors = [
+            '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
+            '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB',
+            '#E67E22', '#27AE60', '#F1C40F', '#E74C3C'
+        ];
+        
+        // Use a more sophisticated hash function (FNV-1a)
+        let hash = 2166136261; // FNV offset basis
+        for (let i = 0; i < userId.length; i++) {
+            hash ^= userId.charCodeAt(i);
+            hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+        }
+        
+        // Add timestamp component to further reduce collisions
+        // but keep it deterministic for the same user
+        const timeComponent = parseInt(userId.slice(-4), 36);
+        hash = (hash ^ timeComponent) >>> 0; // Convert to unsigned 32-bit
+        
+        // Use modulo bias reduction technique
+        const MAX_INT32 = 0xFFFFFFFF;
+        const scaled = (hash / MAX_INT32) * colors.length;
+        const index = Math.floor(scaled);
+        
+        return colors[index];
+    }
+
+    // Track cursor position and selection
+    editor.addEventListener('mouseup', () => collaborationManager.updateLocalCursor());
+    editor.addEventListener('keyup', () => collaborationManager.updateLocalCursor());
+    editor.addEventListener('click', () => collaborationManager.updateLocalCursor());
+    editor.addEventListener('scroll', () => cursorManager.updateAllCursors());
+
+    // Handle text input events
+    editor.addEventListener('input', (e) => {
+        if (collaborationManager.isReceivingUpdate) {
+            if (DEBUG) console.log('Ignoring input event during remote update');
+            return;
+        }
+
+        const target = e.target;
+        const changeStart = target.selectionStart;
+        
+        // Handle different types of input
+        if (e.inputType.startsWith('delete')) {
+            // Calculate what was deleted by comparing with previous value
+            const lengthDiff = previousEditorValue.length - target.value.length;
+            
+            // For bulk deletions or continuous delete
+            if (lengthDiff > 0) {
+                let deletedContent;
+                let deletePosition;
+                
+                if (e.inputType === 'deleteContentBackward') {
+                    // Backspace: deletion happens before cursor
+                    deletePosition = changeStart;
+                    deletedContent = previousEditorValue.substring(deletePosition, deletePosition + lengthDiff);
+                } else {
+                    // Delete key: deletion happens at cursor
+                    deletePosition = changeStart;
+                    deletedContent = previousEditorValue.substring(deletePosition, deletePosition + lengthDiff);
+                }
+                
+                const operation = operationsManager.createOperation(
+                    OperationType.DELETE,
+                    deletePosition,
+                    deletedContent,
+                    userId
+                );
+                if (DEBUG) console.log('Created DELETE operation:', operation);
+                collaborationManager.sendOperation(operation);
+            }
+        } else {
+            // For insertions
+            let insertedText;
+            
+            if (e.inputType === 'insertFromPaste') {
+                insertedText = target.value.substring(changeStart - e.data.length, changeStart);
+            } else if (e.inputType === 'insertLineBreak') {
+                insertedText = '\n';
+            } else {
+                insertedText = e.data || target.value.substring(changeStart - 1, changeStart);
+            }
+            
+            const operation = operationsManager.createOperation(
+                OperationType.INSERT,
+                changeStart - insertedText.length,
+                insertedText,
+                userId
+            );
+            if (DEBUG) console.log('Created INSERT operation:', operation);
+            collaborationManager.sendOperation(operation);
+        }
+
+        previousEditorValue = target.value;
+        debouncedSave(target.value);
+        collaborationManager.updateLocalCursor();
+    });
+
+    // Handle composition events (for IME input)
+    editor.addEventListener('compositionstart', () => {
+        collaborationManager.isReceivingUpdate = true;
+    });
+    
+    editor.addEventListener('compositionend', (e) => {
+        collaborationManager.isReceivingUpdate = false;
+        const target = e.target;
+        const endPosition = target.selectionStart;
+        const composedText = e.data;
+        
+        if (composedText) {
+            const operation = operationsManager.createOperation(
+                OperationType.INSERT,
+                endPosition - composedText.length,
+                composedText,
+                userId
+            );
+            if (DEBUG) console.log('Created composition operation:', operation);
+            collaborationManager.sendOperation(operation);
+        }
+        
+        debouncedSave(target.value);
+        collaborationManager.updateLocalCursor();
+    });
+
     // Create new notepad
     const createNotepad = async () => {
         try {
@@ -68,7 +244,15 @@ document.addEventListener('DOMContentLoaded', () => {
             await loadNotepads();
             notepadSelector.value = newNotepad.id;
             currentNotepadId = newNotepad.id;
+            collaborationManager.currentNotepadId = currentNotepadId;
             editor.value = '';
+            previousEditorValue = '';
+            
+            if (collaborationManager.ws && collaborationManager.ws.readyState === WebSocket.OPEN) {
+                collaborationManager.ws.send(JSON.stringify({
+                    type: 'notepad_change'
+                }));
+            }
         } catch (err) {
             console.error('Error creating notepad:', err);
         }
@@ -91,17 +275,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Load notes
-    const loadNotes = async (notepadId) => {
-        try {
-            const response = await fetchWithPin(`/api/notes/${notepadId}`);
-            const data = await response.json();
-            editor.value = data.content;
-        } catch (err) {
-            console.error('Error loading notes:', err);
-        }
-    };
-
     // Save notes with debounce
     const saveNotes = async (content) => {
         try {
@@ -113,7 +286,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ content }),
             });
             
-            // Show save status
+            if (collaborationManager.ws && collaborationManager.ws.readyState === WebSocket.OPEN && !collaborationManager.isReceivingUpdate) {
+                collaborationManager.ws.send(JSON.stringify({
+                    type: 'update',
+                    notepadId: currentNotepadId,
+                    content: content
+                }));
+            }
+            
             saveStatus.textContent = 'Saved';
             saveStatus.classList.add('visible');
             lastSaveTime = Date.now();
@@ -143,17 +323,12 @@ document.addEventListener('DOMContentLoaded', () => {
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
             saveNotes(content);
-        }, 1000);
+        }, 300);
     };
-
-    // Event Listeners
-    editor.addEventListener('input', (e) => {
-        debouncedSave(e.target.value);
-        checkPeriodicSave(e.target.value);
-    });
 
     notepadSelector.addEventListener('change', (e) => {
         currentNotepadId = e.target.value;
+        collaborationManager.currentNotepadId = currentNotepadId;
         loadNotes(currentNotepadId);
     });
 
@@ -199,10 +374,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             await loadNotepads();
             currentNotepadId = 'default';
+            collaborationManager.currentNotepadId = currentNotepadId;
             notepadSelector.value = currentNotepadId;
             await loadNotes(currentNotepadId);
             
-            // Show deletion status
+            if (collaborationManager.ws && collaborationManager.ws.readyState === WebSocket.OPEN) {
+                collaborationManager.ws.send(JSON.stringify({
+                    type: 'notepad_change'
+                }));
+            }
+            
             saveStatus.textContent = 'Notepad deleted';
             saveStatus.classList.add('visible');
             setTimeout(() => {
@@ -218,7 +399,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Event Listeners
     deleteNotepadBtn.addEventListener('click', () => {
         if (currentNotepadId === 'default') {
             alert('Cannot delete the default notepad');
@@ -249,22 +429,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const notepadName = notepadSelector.options[notepadSelector.selectedIndex].text;
         const content = editor.value;
         
-        // Create blob with content
         const blob = new Blob([content], { type: 'text/plain' });
         const url = window.URL.createObjectURL(blob);
         
-        // Create temporary link and trigger download
         const a = document.createElement('a');
         a.href = url;
         a.download = `${notepadName}.txt`;
         document.body.appendChild(a);
         a.click();
         
-        // Cleanup
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
-        // Show download status
         saveStatus.textContent = 'Downloaded';
         saveStatus.classList.add('visible');
         setTimeout(() => {
@@ -277,7 +453,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const notepadName = notepadSelector.options[notepadSelector.selectedIndex].text;
         const content = editor.value;
         
-        // Create a new window for printing
         const printWindow = window.open('', '_blank');
         printWindow.document.write(`
             <!DOCTYPE html>
@@ -307,14 +482,11 @@ document.addEventListener('DOMContentLoaded', () => {
         printWindow.document.close();
         printWindow.focus();
         
-        // Wait for content to load before printing
         setTimeout(() => {
             printWindow.print();
-            // Close the window after printing (some browsers may do this automatically)
             printWindow.close();
         }, 250);
 
-        // Show print status
         saveStatus.textContent = 'Printing...';
         saveStatus.classList.add('visible');
         setTimeout(() => {
@@ -322,13 +494,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2000);
     };
 
-    // Add event listeners for download and print after function definitions
     downloadNotepadBtn.addEventListener('click', downloadNotepad);
     printNotepadBtn.addEventListener('click', printNotepad);
 
     // Initialize the app
     const initializeApp = () => {
-        // Fetch site configuration
         fetch(`/api/config`)
             .then(response => response.json())
             .then(config => {
@@ -336,7 +506,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('header-title').textContent = config.siteTitle;
                 baseUrl = config.baseUrl;
 
-                // Initialize notepads
                 loadNotepads().then(() => {
                     loadNotes(currentNotepadId);
                 });
@@ -344,14 +513,9 @@ document.addEventListener('DOMContentLoaded', () => {
             .catch(err => console.error('Error loading site configuration:', err));
     };
 
-    // Add credentials to all API requests
-    const fetchWithPin = async (url, options = {}) => {
-        // Add credentials to include cookies
-        options.credentials = 'same-origin';
-        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
-        return fetch(fullUrl, options);
-    };
+    // Initialize WebSocket connection
+    collaborationManager.setupWebSocket();
 
-    // Start the app immediately since PIN verification is handled by the server
+    // Start the app
     initializeApp();
 }); 

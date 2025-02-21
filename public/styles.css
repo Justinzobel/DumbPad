@@ -78,6 +78,13 @@ h1 {
     color: var(--text-color);
     border-radius: 8px;
     transition: background-color 0.2s;
+    font-size: 1.5rem;
+}
+
+#theme-toggle span {
+    font-size: 1.5rem;
+    line-height: 1;
+    display: block;
 }
 
 #theme-toggle:hover {
@@ -109,6 +116,9 @@ main {
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    position: relative;
+    z-index: 1;
+    background-color: var(--textarea-bg);
 }
 
 #editor {
@@ -120,9 +130,12 @@ main {
     border: none;
     outline: none;
     resize: none;
-    background-color: var(--textarea-bg);
+    background-color: transparent;
     color: var(--text-color);
     transition: background-color 0.3s, color 0.3s;
+    position: relative;
+    z-index: 2;
+    font-family: monospace;
 }
 
 #editor::placeholder {
@@ -484,4 +497,38 @@ main {
 
 .login-container #theme-toggle:hover {
     background-color: var(--secondary-color);
+}
+
+/* Remote cursor styling */
+.remote-cursor {
+    position: absolute;
+    pointer-events: none;
+    z-index: 3;
+    width: 2px;
+    height: 1.6em;
+    background-color: currentColor;
+    will-change: transform;
+    transform-origin: left top;
+    transition: transform 0.1s ease;
+    opacity: 0.8;
+    display: block;
+    top: 0;
+    left: 0;
+}
+
+.remote-cursor::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: -4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: currentColor;
+    opacity: 0.9;
+}
+
+/* Remove the old label styles */
+.remote-cursor-label {
+    display: none;
 } 

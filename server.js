@@ -5,9 +5,143 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
+const WebSocket = require('ws');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`Base URL: ${BASE_URL}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Set up WebSocket server
+const wss = new WebSocket.Server({ server });
+
+// Store all active connections with their user IDs
+const clients = new Map();
+
+// Store operations history for each notepad
+const operationsHistory = new Map();
+
+// WebSocket connection handling
+wss.on('connection', (ws) => {
+    console.log('New WebSocket connection established');
+    let userId = null;
+
+    // Handle incoming messages
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            console.log('Received WebSocket message:', data);
+            
+            // Store userId when first received
+            if (data.userId && !userId) {
+                userId = data.userId;
+                clients.set(userId, ws);
+                console.log('User connected:', userId);
+            }
+
+            // Handle different message types
+            if (data.type === 'operation' && data.notepadId) {
+                console.log('Operation received from user:', userId);
+                // Store operation in history
+                if (!operationsHistory.has(data.notepadId)) {
+                    operationsHistory.set(data.notepadId, []);
+                }
+                
+                // Add server version to operation
+                const history = operationsHistory.get(data.notepadId);
+                const serverVersion = history.length;
+                const operation = {
+                    ...data.operation,
+                    serverVersion
+                };
+                history.push(operation);
+
+                // Keep only last 1000 operations
+                if (history.length > 1000) {
+                    history.splice(0, history.length - 1000);
+                }
+
+                // Send acknowledgment to the sender
+                ws.send(JSON.stringify({
+                    type: 'ack',
+                    operationId: data.operation.id,
+                    serverVersion
+                }));
+
+                // Broadcast to other clients
+                clients.forEach((client, clientId) => {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        console.log('Broadcasting operation to user:', clientId);
+                        client.send(JSON.stringify({
+                            type: 'operation',
+                            operation,
+                            notepadId: data.notepadId,
+                            userId: data.userId
+                        }));
+                    }
+                });
+            }
+            else if (data.type === 'cursor' && data.notepadId) {
+                console.log('Cursor update from user:', userId, 'position:', data.position);
+                // Broadcast cursor updates
+                clients.forEach((client, clientId) => {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        console.log('Broadcasting cursor update to user:', clientId);
+                        client.send(JSON.stringify({
+                            type: 'cursor',
+                            userId: data.userId,
+                            color: data.color,
+                            position: data.position,
+                            notepadId: data.notepadId
+                        }));
+                    }
+                });
+            }
+            else if (data.type === 'sync_request') {
+                console.log('Sync request from user:', userId);
+                // Send operation history for catch-up
+                const history = operationsHistory.get(data.notepadId) || [];
+                ws.send(JSON.stringify({
+                    type: 'sync_response',
+                    operations: history,
+                    notepadId: data.notepadId
+                }));
+            }
+            else {
+                // Broadcast other types of messages
+                console.log('Broadcasting other message type:', data.type);
+                clients.forEach((client, clientId) => {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify(data));
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('WebSocket message error:', error);
+        }
+    });
+
+    // Handle client disconnection
+    ws.on('close', () => {
+        if (userId) {
+            console.log('User disconnected:', userId);
+            clients.delete(userId);
+            // Notify other clients about disconnection
+            clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({
+                        type: 'user_disconnected',
+                        userId: userId
+                    }));
+                }
+            });
+        }
+    });
+});
+
 const DATA_DIR = path.join(__dirname, 'data');
 const NOTEPADS_FILE = path.join(DATA_DIR, 'notepads.json');
 const PIN = process.env.DUMBPAD_PIN;
@@ -405,10 +539,4 @@ app.delete('/api/notepads/:id', async (req, res) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Base URL: ${BASE_URL}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 }); 
