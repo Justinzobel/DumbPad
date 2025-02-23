@@ -148,6 +148,7 @@ docker run -p 3000:3000 -v "${PWD}\data:/app/data" dumbwareio/dumbpad:latest
 * Secure cookie handling
 * No client-side PIN storage
 * Rate limiting
+* Collaborative editing
 
 ## Technical Details
 
@@ -221,6 +222,5 @@ Made with ❤️ by DumbWare.io
 
 * Markdown support
 * File attachments
-* Collaborative editing
 
 > Got an idea? Open an issue or submit a PR
