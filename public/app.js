@@ -338,6 +338,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentNotepad = notepadSelector.options[notepadSelector.selectedIndex];
         renameInput.value = currentNotepad.text;
         renameModal.classList.add('visible');
+        renameInput.focus();
+        renameInput.select();
+    });
+
+    renameInput.addEventListener('keyup', async (e) => {
+        if (e.key === 'Enter') {
+            const newName = renameInput.value.trim();
+            if (newName) {
+                await renameNotepad(newName);
+                renameModal.classList.remove('visible');
+            }
+        }
     });
 
     renameCancel.addEventListener('click', () => {
