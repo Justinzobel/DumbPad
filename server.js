@@ -100,6 +100,20 @@ wss.on('connection', (ws) => {
                     }
                 });
             }
+            else if (data.type === 'notepad_rename') {
+                console.log('Notepad rename from user:', userId, 'notepad:', data.notepadId);
+                // Broadcast rename to all clients
+                clients.forEach((client, clientId) => {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        console.log('Broadcasting notepad rename to user:', clientId);
+                        client.send(JSON.stringify({
+                            type: 'notepad_rename',
+                            notepadId: data.notepadId,
+                            newName: data.newName
+                        }));
+                    }
+                });
+            }
             else if (data.type === 'sync_request') {
                 console.log('Sync request from user:', userId);
                 // Send operation history for catch-up
