@@ -64,6 +64,87 @@ export class CursorManager {
         }
     }
 
+    // Get cursor coordinates using Range API
+    getCursorCoordinates(position) {
+        // Create a temporary div with the same styling as the editor
+        const tempDiv = document.createElement('div');
+        const editorStyle = getComputedStyle(this.editor);
+        
+        Object.assign(tempDiv.style, {
+            position: 'absolute',
+            visibility: 'hidden',
+            whiteSpace: this.editor.style.whiteSpace || 'pre-wrap',
+            wordWrap: this.editor.style.wordWrap || 'break-word',
+            width: `${this.editor.clientWidth}px`,
+            font: editorStyle.font,
+            lineHeight: editorStyle.lineHeight,
+            letterSpacing: editorStyle.letterSpacing,
+            padding: editorStyle.padding,
+            boxSizing: 'border-box',
+            top: '0',
+            left: '0',
+            border: editorStyle.border,
+            margin: editorStyle.margin
+        });
+        
+        // Create text nodes for before and at cursor
+        const textBeforeCursor = document.createTextNode(this.editor.value.substring(0, position));
+        const cursorNode = document.createTextNode('\u200B'); // Zero-width space for cursor position
+        
+        tempDiv.appendChild(textBeforeCursor);
+        tempDiv.appendChild(cursorNode);
+        
+        // Add the temp div to the editor container for proper positioning context
+        const container = document.querySelector('.editor-container');
+        if (!container) {
+            console.error('Editor container not found');
+            return null;
+        }
+        container.appendChild(tempDiv);
+        
+        // Create and position the range
+        const range = document.createRange();
+        range.setStart(cursorNode, 0);
+        range.setEnd(cursorNode, 1);
+        
+        // Get the rectangle for the cursor position
+        const rects = range.getClientRects();
+        const rect = rects[0]; // Use the first rect for the cursor position
+        
+        // Clean up
+        container.removeChild(tempDiv);
+        
+        if (!rect) {
+            if (this.DEBUG) {
+                console.warn('Could not get cursor coordinates, falling back to editor position');
+            }
+            return {
+                top: parseFloat(editorStyle.paddingTop) || 0,
+                left: parseFloat(editorStyle.paddingLeft) || 0,
+                height: parseFloat(editorStyle.lineHeight) || parseFloat(editorStyle.fontSize) * 1.6
+            };
+        }
+        
+        // Get editor's padding and margins
+        const paddingLeft = parseFloat(editorStyle.paddingLeft) || 0;
+        const paddingTop = parseFloat(editorStyle.paddingTop) || 0;
+        const marginLeft = parseFloat(editorStyle.marginLeft) || 0;
+        const marginTop = parseFloat(editorStyle.marginTop) || 0;
+        
+        // Calculate position relative to the editor's content area
+        const editorRect = this.editor.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        
+        // Get the line height for proper cursor height
+        const lineHeight = parseFloat(editorStyle.lineHeight) || parseFloat(editorStyle.fontSize) * 1.6;
+        
+        return {
+            top: rect.top - containerRect.top + this.editor.scrollTop - (lineHeight * 0.25), // Move up by quarter line height
+            left: rect.left - containerRect.left,
+            height: lineHeight
+        };
+    }
+
     // Create and update remote cursors
     createRemoteCursor(remoteUserId, color) {
         // Double check we never create our own cursor
@@ -116,64 +197,20 @@ export class CursorManager {
             }
         }
 
-        // Get text up to cursor position
-        const text = this.editor.value.substring(0, position);
-        const lines = text.split('\n');
-        const currentLine = lines.length;
-        const currentLineStart = text.lastIndexOf('\n') + 1;
-        const currentLineText = text.slice(currentLineStart);
-        
-        this.updateTextMetrics();
+        // Get cursor coordinates using Range API
+        const coords = this.getCursorCoordinates(position);
+        if (!coords) return; // Exit if we couldn't get coordinates
         
         if (this.DEBUG) {
-            console.log('Cursor position debug:', {
-                userId: remoteUserId,
-                position,
-                currentLine,
-                currentLineText,
-                lineHeight: this.textMetrics.lineHeight,
-                charWidth: this.textMetrics.charWidth
-            });
+            console.log('Cursor coordinates:', coords);
         }
-        
-        // Measure current line
-        this.textMetrics.measurementDiv.textContent = currentLineText;
-        const left = this.textMetrics.measurementDiv.offsetWidth;
-        
-        const editorRect = this.editor.getBoundingClientRect();
-        const containerRect = document.querySelector('.editor-container').getBoundingClientRect();
-        const scrollTop = this.editor.scrollTop;
-        
-        // Calculate position relative to the editor's padding
-        const editorPadding = parseFloat(getComputedStyle(this.editor).paddingLeft);
-        const relativeLeft = editorPadding + left;
-        const relativeTop = currentLine * this.textMetrics.lineHeight - this.textMetrics.lineHeight * 0.1; // Adjust for proper line alignment
         
         // Store position for scroll updates
         cursor.dataset.position = position;
         
-        if (this.DEBUG) {
-            console.log('Cursor positioning debug:', {
-                measurements: {
-                    left,
-                    editorPadding,
-                    lineHeight: this.textMetrics.lineHeight,
-                    scrollTop
-                },
-                rects: {
-                    editor: editorRect,
-                    container: containerRect
-                },
-                computed: {
-                    relativeLeft,
-                    relativeTop
-                }
-            });
-        }
-        
         // Apply position with smooth transition
-        cursor.style.transform = `translate3d(${relativeLeft}px, ${relativeTop - scrollTop}px, 0)`;
-        cursor.style.height = `${this.textMetrics.lineHeight * 0.9}px`; // Slightly shorter than line height
+        cursor.style.transform = `translate3d(${coords.left}px, ${coords.top}px, 0)`;
+        cursor.style.height = `${coords.height}px`; // Use full line height
         cursor.style.display = 'block'; // Ensure cursor is visible
     }
 

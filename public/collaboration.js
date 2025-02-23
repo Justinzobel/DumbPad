@@ -72,6 +72,10 @@ export class CollaborationManager {
             else if (data.type === 'operation' && data.notepadId === this.currentNotepadId) {
                 this.handleRemoteOperation(data);
             }
+            else if (data.type === 'notepad_rename') {
+                // Handle remote notepad rename
+                this.handleNotepadRename(data);
+            }
             else if (data.type === 'notepad_change') {
                 this.onNotepadChange();
             }
@@ -237,5 +241,16 @@ export class CollaborationManager {
             this.ws = null;
         }
         clearTimeout(this.cursorUpdateTimeout);
+    }
+
+    // Handle remote notepad rename
+    handleNotepadRename(data) {
+        const option = document.querySelector(`#notepad-selector option[value="${data.notepadId}"]`);
+        if (option) {
+            option.textContent = data.newName;
+        } else {
+            // If we can't find the option, refresh the entire list
+            this.onNotepadChange();
+        }
     }
 } 

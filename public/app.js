@@ -186,9 +186,31 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             // For insertions
             let insertedText;
+            let insertPosition = changeStart;
             
             if (e.inputType === 'insertFromPaste') {
-                insertedText = target.value.substring(changeStart - e.data.length, changeStart);
+                // Handle paste operation
+                const selectionDiff = previousEditorValue.length - target.value.length + e.data.length;
+                
+                // If there was selected text that was replaced
+                if (selectionDiff > 0) {
+                    // First create a delete operation for the selected text
+                    const deletePosition = changeStart - e.data.length;
+                    const deletedContent = previousEditorValue.substring(deletePosition, deletePosition + selectionDiff);
+                    
+                    const deleteOperation = operationsManager.createOperation(
+                        OperationType.DELETE,
+                        deletePosition,
+                        deletedContent,
+                        userId
+                    );
+                    if (DEBUG) console.log('Created DELETE operation for paste:', deleteOperation);
+                    collaborationManager.sendOperation(deleteOperation);
+                    
+                    insertPosition = deletePosition;
+                }
+                
+                insertedText = e.data;
             } else if (e.inputType === 'insertLineBreak') {
                 insertedText = '\n';
             } else {
@@ -197,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const operation = operationsManager.createOperation(
                 OperationType.INSERT,
-                changeStart - insertedText.length,
+                insertPosition - (e.inputType === 'insertFromPaste' ? 0 : insertedText.length),
                 insertedText,
                 userId
             );
@@ -270,6 +292,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             await loadNotepads();
             notepadSelector.value = currentNotepadId;
+            
+            // Broadcast the rename to other users
+            if (collaborationManager.ws && collaborationManager.ws.readyState === WebSocket.OPEN) {
+                collaborationManager.ws.send(JSON.stringify({
+                    type: 'notepad_rename',
+                    notepadId: currentNotepadId,
+                    newName: newName
+                }));
+            }
         } catch (err) {
             console.error('Error renaming notepad:', err);
         }
