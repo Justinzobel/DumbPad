@@ -131,7 +131,7 @@ docker run -p 3000:3000 -v "${PWD}\data:/app/data" dumbwareio/dumbpad:latest
 | Variable      | Description                                | Default               | Required |
 |--------------|--------------------------------------------|-----------------------|----------|
 | PORT         | Server port                                | 3000                  | No       |
-| BASE_URL     | Base URL for the application              | http://localhost:PORT | No       |
+| BASE_URL     | Base URL for the application              | http://localhost:PORT | Yes       |
 | DUMBPAD_PIN  | PIN protection (4-10 digits)              | None                  | No       |
 | SITE_TITLE   | Site title displayed in header            | DumbPad               | No       |
 
