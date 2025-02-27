@@ -13,4 +13,4 @@ services:
       # Optional PIN protection (leave empty to disable)
       DUMBPAD_PIN: 1234
       # The base URL for the application
-      BASE_URL: http://localhost:3000 # Comment out to allow any origin
+      BASE_URL: http://localhost:3001 # Comment out to allow any origin
