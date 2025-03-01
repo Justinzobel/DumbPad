@@ -1,13 +1,8 @@
 import { OperationsManager, OperationType } from './operations.js';
 import { CollaborationManager } from './collaboration.js';
 import { CursorManager } from './cursor-manager.js';
+import { StatusManager } from './status.js';
 import { marked } from '/js/marked/marked.esm.js';
-
-// Set up markdown parser
-marked.setOptions({
-    breaks: true,
-    gfm: true
-});
 
 document.addEventListener('DOMContentLoaded', () => {
     const DEBUG = false;
@@ -17,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const previewContainer = document.getElementById('preview-container');
     const previewPane = document.getElementById('preview-pane');
     const themeToggle = document.getElementById('theme-toggle');
-    const saveStatus = document.getElementById('save-status');
+    const statusManager = new StatusManager(document.getElementById('status-container'));
     const notepadSelector = document.getElementById('notepad-selector');
     const newNotepadBtn = document.getElementById('new-notepad');
     const renameNotepadBtn = document.getElementById('rename-notepad');
@@ -32,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const renameConfirm = document.getElementById('rename-confirm');
     const deleteCancel = document.getElementById('delete-cancel');
     const deleteConfirm = document.getElementById('delete-confirm');
+    const tooltips = document.querySelectorAll('[data-tooltip]');
     const downloadModal = document.getElementById('download-modal');
     const downloadTxt = document.getElementById('download-txt');
     const downloadMd = document.getElementById('download-md');
@@ -44,15 +40,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Apply initial theme
     document.body.classList.toggle('dark-mode', currentTheme === 'dark');
     themeToggle.innerHTML = currentTheme === 'dark' ? '<span class="sun">☀</span>' : '<span class="moon">☽</span>';
-    
-    // Theme toggle handler
-    themeToggle.addEventListener('click', () => {
-        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        document.body.classList.toggle('dark-mode');
-        themeToggle.innerHTML = currentTheme === 'dark' ? '<span class="sun">☀</span>' : '<span class="moon">☽</span>';
-        inheritEditorStyles(previewPane);
-        localStorage.setItem(THEME_KEY, currentTheme);
-    });
+    const addThemeEventListeners = () => {
+        // Theme toggle handler
+        themeToggle.addEventListener('click', () => {
+            currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.body.classList.toggle('dark-mode');
+            themeToggle.innerHTML = currentTheme === 'dark' ? '<span class="sun">☀</span>' : '<span class="moon">☽</span>';
+            inheritEditorStyles(previewPane);
+            localStorage.setItem(THEME_KEY, currentTheme);
+        });
+    }
     
     let saveTimeout;
     let lastSaveTime = Date.now();
@@ -96,8 +93,8 @@ document.addEventListener('DOMContentLoaded', () => {
             editor.value = data.content;
             previousEditorValue = data.content;
             
-            // Update preview if in preview mode
             if (isPreviewMode) {
+                // Update preview if in preview mode
                 previewPane.innerHTML = marked.parse(data.content);
             }
         } catch (err) {
@@ -160,159 +157,158 @@ document.addEventListener('DOMContentLoaded', () => {
         return colors[index];
     }
 
-    // Track cursor position and selection
-    editor.addEventListener('mouseup', () => collaborationManager.updateLocalCursor());
-    editor.addEventListener('keyup', () => collaborationManager.updateLocalCursor());
-    editor.addEventListener('click', () => collaborationManager.updateLocalCursor());
-    editor.addEventListener('scroll', () => cursorManager.updateAllCursors());
+    const addEditorEventListeners = () => {
+        // Track cursor position and selection
+        editor.addEventListener('mouseup', () => collaborationManager.updateLocalCursor());
+        editor.addEventListener('keyup', () => collaborationManager.updateLocalCursor());
+        editor.addEventListener('click', () => collaborationManager.updateLocalCursor());
+        editor.addEventListener('scroll', () => cursorManager.updateAllCursors());
 
-    // Handle text input events
-    editor.addEventListener('input', (e) => {
-        if (collaborationManager.isReceivingUpdate) {
-            if (DEBUG) console.log('Ignoring input event during remote update');
-            return;
-        }
-
-        const target = e.target;
-        const changeStart = target.selectionStart;
-        
-        // Handle different types of input
-        if (e.inputType.startsWith('delete')) {
-            // Calculate what was deleted by comparing with previous value
-            const lengthDiff = previousEditorValue.length - target.value.length;
-            
-            // For bulk deletions or continuous delete
-            if (lengthDiff > 0) {
-                let deletedContent;
-                let deletePosition;
-                
-                if (e.inputType === 'deleteContentBackward') {
-                    // Backspace: deletion happens before cursor
-                    deletePosition = changeStart;
-                    deletedContent = previousEditorValue.substring(deletePosition, deletePosition + lengthDiff);
-                } else {
-                    // Delete key: deletion happens at cursor
-                    deletePosition = changeStart;
-                    deletedContent = previousEditorValue.substring(deletePosition, deletePosition + lengthDiff);
-                }
-                
-                const operation = operationsManager.createOperation(
-                    OperationType.DELETE,
-                    deletePosition,
-                    deletedContent,
-                    userId
-                );
-                if (DEBUG) console.log('Created DELETE operation:', operation);
-                collaborationManager.sendOperation(operation);
+        // Handle text input events
+        editor.addEventListener('input', (e) => {
+            if (collaborationManager.isReceivingUpdate) {
+                if (DEBUG) console.log('Ignoring input event during remote update');
+                return;
             }
-        } else {
-            // For insertions
-            let insertedText;
-            let insertPosition = changeStart;
+    
+            const target = e.target;
+            const changeStart = target.selectionStart;
             
-            if (e.inputType === 'insertFromPaste') {
-                // Handle paste operation
-                const selectionDiff = previousEditorValue.length - target.value.length + e.data.length;
+            // Handle different types of input
+            if (e.inputType.startsWith('delete')) {
+                // Calculate what was deleted by comparing with previous value
+                const lengthDiff = previousEditorValue.length - target.value.length;
                 
-                // If there was selected text that was replaced
-                if (selectionDiff > 0) {
-                    // First create a delete operation for the selected text
-                    const deletePosition = changeStart - e.data.length;
-                    const deletedContent = previousEditorValue.substring(deletePosition, deletePosition + selectionDiff);
+                // For bulk deletions or continuous delete
+                if (lengthDiff > 0) {
+                    let deletedContent;
+                    let deletePosition;
                     
-                    const deleteOperation = operationsManager.createOperation(
+                    if (e.inputType === 'deleteContentBackward') {
+                        // Backspace: deletion happens before cursor
+                        deletePosition = changeStart;
+                        deletedContent = previousEditorValue.substring(deletePosition, deletePosition + lengthDiff);
+                    } else {
+                        // Delete key: deletion happens at cursor
+                        deletePosition = changeStart;
+                        deletedContent = previousEditorValue.substring(deletePosition, deletePosition + lengthDiff);
+                    }
+                    
+                    const operation = operationsManager.createOperation(
                         OperationType.DELETE,
                         deletePosition,
                         deletedContent,
                         userId
                     );
-                    if (DEBUG) console.log('Created DELETE operation for paste:', deleteOperation);
-                    collaborationManager.sendOperation(deleteOperation);
+                    if (DEBUG) console.log('Created DELETE operation:', operation);
+                    collaborationManager.sendOperation(operation);
+                }
+            } else {
+                // For insertions
+                let insertedText;
+                let insertPosition = changeStart;
+                
+                if (e.inputType === 'insertFromPaste') {
+                    // Handle paste operation
+                    const selectionDiff = previousEditorValue.length - target.value.length + e.data.length;
                     
-                    insertPosition = deletePosition;
+                    // If there was selected text that was replaced
+                    if (selectionDiff > 0) {
+                        // First create a delete operation for the selected text
+                        const deletePosition = changeStart - e.data.length;
+                        const deletedContent = previousEditorValue.substring(deletePosition, deletePosition + selectionDiff);
+                        
+                        const deleteOperation = operationsManager.createOperation(
+                            OperationType.DELETE,
+                            deletePosition,
+                            deletedContent,
+                            userId
+                        );
+                        if (DEBUG) console.log('Created DELETE operation for paste:', deleteOperation);
+                        collaborationManager.sendOperation(deleteOperation);
+                        
+                        insertPosition = deletePosition;
+                    }
+                    
+                    insertedText = e.data;
+                } else if (e.inputType === 'insertLineBreak') {
+                    insertedText = '\n';
+                } else {
+                    insertedText = e.data || target.value.substring(changeStart - 1, changeStart);
                 }
                 
-                insertedText = e.data;
-            } else if (e.inputType === 'insertLineBreak') {
-                insertedText = '\n';
-            } else {
-                insertedText = e.data || target.value.substring(changeStart - 1, changeStart);
+                const operation = operationsManager.createOperation(
+                    OperationType.INSERT,
+                    insertPosition - (e.inputType === 'insertFromPaste' ? 0 : insertedText.length),
+                    insertedText,
+                    userId
+                );
+                if (DEBUG) console.log('Created INSERT operation:', operation);
+                collaborationManager.sendOperation(operation);
             }
-            
-            const operation = operationsManager.createOperation(
-                OperationType.INSERT,
-                insertPosition - (e.inputType === 'insertFromPaste' ? 0 : insertedText.length),
-                insertedText,
-                userId
-            );
-            if (DEBUG) console.log('Created INSERT operation:', operation);
-            collaborationManager.sendOperation(operation);
-        }
-
-        previousEditorValue = target.value;
-        // Update markdown preview in real-time if in preview mode
-        if (isPreviewMode) {
-            previewPane.innerHTML = marked.parse(target.value);
-        }
-
-        debouncedSave(target.value);
-        collaborationManager.updateLocalCursor();
-    });
-
-    // Handle composition events (for IME input)
-    editor.addEventListener('compositionstart', () => {
-        collaborationManager.isReceivingUpdate = true;
-    });
     
-    editor.addEventListener('compositionend', (e) => {
-        collaborationManager.isReceivingUpdate = false;
-        const target = e.target;
-        const endPosition = target.selectionStart;
-        const composedText = e.data;
-        
-        if (composedText) {
-            const operation = operationsManager.createOperation(
-                OperationType.INSERT,
-                endPosition - composedText.length,
-                composedText,
-                userId
-            );
-            if (DEBUG) console.log('Created composition operation:', operation);
-            collaborationManager.sendOperation(operation);
-        }
+            previousEditorValue = target.value;
+            // Update markdown preview in real-time if in preview mode
+            if (isPreviewMode) {
+                previewPane.innerHTML = marked.parse(target.value);
+            }
 
-        // Update markdown preview in real-time if in preview mode
-        if (isPreviewMode) {
-            previewPane.innerHTML = marked.parse(target.value);
-        }
+            debouncedSave(target.value);
+            collaborationManager.updateLocalCursor();
+        });
+    
+        // Handle composition events (for IME input)
+        editor.addEventListener('compositionstart', () => {
+            collaborationManager.isReceivingUpdate = true;
+        });
         
-        debouncedSave(target.value);
-        collaborationManager.updateLocalCursor();
+        editor.addEventListener('compositionend', (e) => {
+            collaborationManager.isReceivingUpdate = false;
+            const target = e.target;
+            const endPosition = target.selectionStart;
+            const composedText = e.data;
+            
+            if (composedText) {
+                const operation = operationsManager.createOperation(
+                    OperationType.INSERT,
+                    endPosition - composedText.length,
+                    composedText,
+                    userId
+                );
+                if (DEBUG) console.log('Created composition operation:', operation);
+                collaborationManager.sendOperation(operation);
+            }
+    
+            // Update markdown preview in real-time if in preview mode
+            if (isPreviewMode) {
+                previewPane.innerHTML = marked.parse(target.value);
+            }
         
-    });
+            debouncedSave(target.value);
+            collaborationManager.updateLocalCursor();
+        });
+    }
 
     // Function to toggle between edit and preview modes
     const toggleMarkdownPreview = () => {
         isPreviewMode = !isPreviewMode;
-        inheritEditorStyles(previewPane);
         if (isPreviewMode) {
             // Render and show the markdown
+            inheritEditorStyles(previewPane);
             previewPane.innerHTML = marked.parse(editor.value);
             previewContainer.style.display = 'block';
             editorContainer.style.display = 'none';
             previewMarkdownBtn.classList.add('active');
-
+            statusManager.show('Markdown Preview On');
         } else {
             previewContainer.style.display = 'none';
             editorContainer.style.display = 'block';
             previewMarkdownBtn.classList.remove('active');
+            statusManager.show('Markdown Preview Off', 'error');
         }
 
         collaborationManager.updateLocalCursor();
-    };
-    
-    // Add event listener for the markdown toggle button
-    previewMarkdownBtn.addEventListener('click', toggleMarkdownPreview);
+    }
 
     function inheritEditorStyles(element) {
         element.style.backgroundColor = window.getComputedStyle(editor).backgroundColor;
@@ -320,6 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
         element.style.padding = window.getComputedStyle(editor).padding;
     }
 
+    /* Notepad Controls */
     // Create new notepad
     const createNotepad = async () => {
         try {
@@ -342,8 +339,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     type: 'notepad_change'
                 }));
             }
+
+            statusManager.show(`New notepad: ${newNotepad.name}`, 'success', 3000)
         } catch (err) {
             console.error('Error creating notepad:', err);
+            statusManager.show('Error creating notepad', 'error', 3000)
         }
     };
 
@@ -368,8 +368,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     newName: newName
                 }));
             }
+
+            statusManager.show('Renamed notepad')
         } catch (err) {
             console.error('Error renaming notepad:', err);
+            statusManager.show('Error renaming notepad', 'error', 3000)
         }
     };
 
@@ -392,19 +395,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }));
             }
             
-            saveStatus.textContent = 'Saved';
-            saveStatus.classList.add('visible');
+            statusManager.show('Saved');
             lastSaveTime = Date.now();
-            setTimeout(() => {
-                saveStatus.classList.remove('visible');
-            }, 2000);
         } catch (err) {
             console.error('Error saving notes:', err);
-            saveStatus.textContent = 'Error saving';
-            saveStatus.classList.add('visible');
-            setTimeout(() => {
-                saveStatus.classList.remove('visible');
-            }, 2000);
+            statusManager.show('Error saving', 'error', 3000);
         }
     };
 
@@ -423,44 +418,6 @@ document.addEventListener('DOMContentLoaded', () => {
             saveNotes(content);
         }, 300);
     };
-
-    notepadSelector.addEventListener('change', (e) => {
-        currentNotepadId = e.target.value;
-        collaborationManager.currentNotepadId = currentNotepadId;
-        loadNotes(currentNotepadId);
-    });
-
-    newNotepadBtn.addEventListener('click', createNotepad);
-
-    renameNotepadBtn.addEventListener('click', () => {
-        const currentNotepad = notepadSelector.options[notepadSelector.selectedIndex];
-        renameInput.value = currentNotepad.text;
-        renameModal.classList.add('visible');
-        renameInput.focus();
-        renameInput.select();
-    });
-
-    renameInput.addEventListener('keyup', async (e) => {
-        if (e.key === 'Enter') {
-            const newName = renameInput.value.trim();
-            if (newName) {
-                await renameNotepad(newName);
-                renameModal.classList.remove('visible');
-            }
-        }
-    });
-
-    renameCancel.addEventListener('click', () => {
-        renameModal.classList.remove('visible');
-    });
-
-    renameConfirm.addEventListener('click', async () => {
-        const newName = renameInput.value.trim();
-        if (newName) {
-            await renameNotepad(newName);
-            renameModal.classList.remove('visible');
-        }
-    });
 
     // Delete notepad
     const deleteNotepad = async () => {
@@ -494,67 +451,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }));
             }
             
-            saveStatus.textContent = 'Notepad deleted';
-            saveStatus.classList.add('visible');
-            setTimeout(() => {
-                saveStatus.classList.remove('visible');
-            }, 2000);
+            // Hide Delete Modal
+            deleteModal.classList.remove('visible');
+            statusManager.show('Notepad deleted')
         } catch (err) {
             console.error('Error deleting notepad:', err);
-            saveStatus.textContent = 'Error deleting notepad';
-            saveStatus.classList.add('visible');
-            setTimeout(() => {
-                saveStatus.classList.remove('visible');
-            }, 2000);
+            statusManager.show('Error deleting notepad', 'error', 3000);
         }
     };
-
-    deleteNotepadBtn.addEventListener('click', () => {
-        if (currentNotepadId === 'default') {
-            alert('Cannot delete the default notepad');
-            return;
-        }
-        deleteModal.classList.add('visible');
-    });
-
-    deleteCancel.addEventListener('click', () => {
-        deleteModal.classList.remove('visible');
-    });
-
-    deleteConfirm.addEventListener('click', async () => {
-        await deleteNotepad();
-        deleteModal.classList.remove('visible');
-    });
-
-    // Handle Ctrl+S
-    document.addEventListener('keydown', (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-            e.preventDefault();
-            saveNotes(editor.value);
-        }
-    });
-
-    // Show download modal
-    downloadNotepadBtn.addEventListener('click', () => {
-        downloadModal.classList.add('visible');
-    });
-
-    // Cancel download
-    downloadCancel.addEventListener('click', () => {
-        downloadModal.classList.remove('visible');
-    });
-
-    // Download as TXT
-    downloadTxt.addEventListener('click', () => {
-        downloadNotepad('txt');
-        downloadModal.classList.remove('visible');
-    });
-
-    // Download as MD
-    downloadMd.addEventListener('click', () => {
-        downloadNotepad('md');
-        downloadModal.classList.remove('visible');
-    });
 
     // Download file with specified extension
     const downloadNotepad = (extension) => {
@@ -578,11 +482,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
-        saveStatus.textContent = 'Downloaded';
-        saveStatus.classList.add('visible');
-        setTimeout(() => {
-            saveStatus.classList.remove('visible');
-        }, 2000);
+        statusManager.show('Downloading...');
     };
 
     // Print current notepad
@@ -629,14 +529,163 @@ document.addEventListener('DOMContentLoaded', () => {
             printWindow.close();
         }, 250);
 
-        saveStatus.textContent = 'Printing...';
-        saveStatus.classList.add('visible');
-        setTimeout(() => {
-            saveStatus.classList.remove('visible');
-        }, 2000);
+        statusManager.show('Printing...');
     };
 
-    printNotepadBtn.addEventListener('click', printNotepad);
+    const addNotepadControlsEventListeners = () => {
+        notepadSelector.addEventListener('change', (e) => {
+            currentNotepadId = e.target.value;
+            collaborationManager.currentNotepadId = currentNotepadId;
+            loadNotes(currentNotepadId);
+        });
+    
+        newNotepadBtn.addEventListener('click', createNotepad);
+    
+        renameNotepadBtn.addEventListener('click', () => {
+            const currentNotepad = notepadSelector.options[notepadSelector.selectedIndex];
+            renameInput.value = currentNotepad.text;
+            renameModal.classList.add('visible');
+            renameInput.focus();
+            renameInput.select();
+        });
+        renameInput.addEventListener('keyup', async (e) => {
+            if (e.key === 'Enter') {
+                const newName = renameInput.value.trim();
+                if (newName) {
+                    await renameNotepad(newName);
+                    renameModal.classList.remove('visible');
+                }
+            }
+        });
+        renameCancel.addEventListener('click', () => {
+            renameModal.classList.remove('visible');
+        });
+        renameConfirm.addEventListener('click', async () => {
+            const newName = renameInput.value.trim();
+            if (newName) {
+                await renameNotepad(newName);
+                renameModal.classList.remove('visible');
+            }
+        });
+        
+        deleteNotepadBtn.addEventListener('click', () => {
+            if (currentNotepadId === 'default') {
+                alert('Cannot delete the default notepad');
+                return;
+            }
+            deleteModal.classList.add('visible');
+        });
+        deleteCancel.addEventListener('click', () => {
+            deleteModal.classList.remove('visible');
+        });
+        deleteConfirm.addEventListener('click', async () => {
+            await deleteNotepad();
+        });
+    
+        downloadNotepadBtn.addEventListener('click', () => {
+            downloadModal.classList.add('visible');
+        });
+        downloadCancel.addEventListener('click', () => {
+            downloadModal.classList.remove('visible');
+        });
+        downloadTxt.addEventListener('click', () => {
+            // Download as TXT
+            downloadNotepad('txt');
+            downloadModal.classList.remove('visible');
+        })
+        downloadMd.addEventListener('click', () => {
+            // Download as MD
+            downloadNotepad('md');
+            downloadModal.classList.remove('visible');
+        });
+
+        printNotepadBtn.addEventListener('click', printNotepad);
+        previewMarkdownBtn.addEventListener('click', toggleMarkdownPreview);
+    }
+
+    const addShortcutEventListeners = () => {
+        document.addEventListener('keydown', async (e) => {
+            const windowsModifier = e.ctrlKey;
+            const macModifier = e.metaKey;
+
+            if ((windowsModifier && e.altKey) || (macModifier && e.ctrlKey)) {
+                /* For browser-reserved shortcuts 
+                Windows: Ctrl + Alt
+                Mac: Command + Ctrl
+                */
+               switch(e.key) {
+                    case 'n': {
+                        e.preventDefault();
+                        createNotepad();
+                        break;
+                    }
+                    case 'r': {
+                        e.preventDefault();
+                        renameNotepadBtn.click();
+                        break;
+                    }
+                    case 'a': {
+                        e.preventDefault();
+                        downloadNotepadBtn.click();
+                        break;
+                    }
+                    case 'm': {
+                        e.preventDefault();
+                        previewMarkdownBtn.click();
+                        break;
+                    }
+                    case 'x': {
+                        e.preventDefault();
+                        deleteNotepadBtn.click();
+                        break;
+                    }
+                    default:
+                        break;
+               }
+            }
+            else if (windowsModifier || macModifier) {
+                switch(e.key) {
+                    case 's': {
+                        e.preventDefault();
+                        saveNotes(editor.value);
+                        break;
+                    }
+                    case 'p': {
+                        e.preventDefault();
+                        printNotepad();
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
+        });
+    }
+
+    const addEventListeners = () => {
+        addThemeEventListeners();
+        addEditorEventListeners();
+        addNotepadControlsEventListeners();
+        addShortcutEventListeners();
+    }
+
+    const setupToolTips = () => {
+        tooltips.forEach((element) => {
+            let tooltip = document.createElement('div');
+            tooltip.classList.add('tooltip');
+            document.body.appendChild(tooltip);
+    
+            element.addEventListener('mouseover', (e) => {
+                tooltip.textContent = element.getAttribute('data-tooltip');
+                tooltip.style.left = e.pageX + 10 + 'px';
+                tooltip.style.top = e.pageY + 10 + 'px';
+                tooltip.classList.add('show');
+            });
+            element.addEventListener('mouseout', () => {
+                tooltip.classList.remove('show');
+            });
+        });
+    }
 
     // Initialize the app
     const initializeApp = () => {
@@ -652,6 +701,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             })
             .catch(err => console.error('Error loading site configuration:', err));
+        
+        addEventListeners();
+        setupToolTips();
+        marked.setOptions({ // Set up markdown parser
+            breaks: true,
+            gfm: true
+        });
     };
 
     // Initialize WebSocket connection

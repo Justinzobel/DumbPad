@@ -2,7 +2,7 @@
 
 A stupid simple, no auth (unless you want it!), modern notepad application with auto-save functionality and dark mode support.
 
-![image](https://github.com/user-attachments/assets/c6a00aac-f841-48a8-b8d3-c3d5378fc7d9)
+![image](https://github.com/user-attachments/assets/ba624fc5-f5d8-4a98-b949-c0c6d2b751a8)
 
 ## Table of Contents
 - [Features](#features)
@@ -170,6 +170,7 @@ docker run -p 3000:3000 -v "${PWD}\data:/app/data" dumbwareio/dumbpad:latest
 * dotenv: Environment configuration
 * cookie-parser: Cookie handling
 * express-rate-limit: Rate limiting
+* marked: Markdown formatting
 
 
 The `data` directory contains:
@@ -185,7 +186,8 @@ The `data` directory contains:
 - Press `Ctrl+S` (or `Cmd+S` on Mac) to force save.
 - Auto-saves every 10 seconds while typing.
 - Create multiple notepads with the + button.
-- Download notepads as .txt files.
+- Download notepads as .txt or .md files.
+- Hover over notepad controls to view tooltips of keyboard shortcuts
 - If PIN protection is enabled, you'll need to enter the PIN to access the app.
 
 ## Technical Details
@@ -222,7 +224,6 @@ Made with ❤️ by DumbWare.io
 
 ## Future Features
 
-* Markdown support
 * File attachments
 
 > Got an idea? Open an issue or submit a PR
